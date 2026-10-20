@@ -130,8 +130,6 @@ async function buildApplication() {
       origin: parseAllowedOrigins(),
       methods: ["GET", "POST"],
     },
-    transports: ["websocket"],
-    serveClient: false,
   });
 
   const pubClient = createClient({
