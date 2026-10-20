@@ -602,29 +602,105 @@ class RedisGameService {
    * Schedule a deadline while holding the same lock as room state.
    * deadlineMs is an absolute Unix timestamp in milliseconds.
    */
+
   async scheduleRoomDeadline(roomCode, deadlineMs) {
     assertRoomCode(roomCode);
 
-    const deadline = Number(deadlineMs);
+    const requestedDeadline = Number(deadlineMs);
 
-    if (!Number.isFinite(deadline) || deadline <= 0) {
+    if (!Number.isFinite(requestedDeadline) || requestedDeadline <= 0) {
       throw new TypeError("deadlineMs must be a positive timestamp.");
     }
 
-    await this.redis.zadd(DEADLINE_KEY, {
-      score: deadline,
-      member: roomCode,
-    });
+    return this.withRoomLock(roomCode, async (room) => {
+      const currentDeadline = Number(room.deadline);
 
-    return { roomCode, deadline };
+      // Only schedule deadlines for an active game round.
+      if (room.status !== "playing" || room.roundResolved || room.winner) {
+        await this.redis.zrem(DEADLINE_KEY, roomCode);
+
+        return {
+          save: false,
+          value: {
+            scheduled: false,
+            reason: "round_not_active",
+          },
+        };
+      }
+
+      if (!Number.isFinite(currentDeadline) || currentDeadline <= 0) {
+        await this.redis.zrem(DEADLINE_KEY, roomCode);
+
+        return {
+          save: false,
+          value: {
+            scheduled: false,
+            reason: "invalid_room_deadline",
+          },
+        };
+      }
+
+      // Use the deadline stored in the latest room state.
+      await this.redis.zadd(DEADLINE_KEY, {
+        score: currentDeadline,
+        member: roomCode,
+      });
+
+      return {
+        save: false,
+        value: {
+          scheduled: true,
+          roomCode,
+          deadline: currentDeadline,
+        },
+      };
+    });
   }
 
   /**
    * Remove a room's deadline index entry.
    */
+
   async removeRoomDeadline(roomCode) {
     assertRoomCode(roomCode);
-    return Number(await this.redis.zrem(DEADLINE_KEY, roomCode));
+
+    return this.withRoomLock(roomCode, async (room) => {
+      const currentDeadline = Number(room.deadline);
+
+      // Preserve the deadline if the room has already advanced
+      // to another active round.
+      if (
+        room.status === "playing" &&
+        !room.roundResolved &&
+        !room.winner &&
+        Number.isFinite(currentDeadline) &&
+        currentDeadline > 0
+      ) {
+        await this.redis.zadd(DEADLINE_KEY, {
+          score: currentDeadline,
+          member: roomCode,
+        });
+
+        return {
+          save: false,
+          value: {
+            removed: false,
+            reason: "active_round_deadline_preserved",
+            deadline: currentDeadline,
+          },
+        };
+      }
+
+      const removed = Number(await this.redis.zrem(DEADLINE_KEY, roomCode));
+
+      return {
+        save: false,
+        value: {
+          removed: removed > 0,
+          roomCode,
+        },
+      };
+    });
   }
 
   /**
