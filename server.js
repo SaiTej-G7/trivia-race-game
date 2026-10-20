@@ -1,3 +1,4 @@
+
 "use strict";
 
 const path = require("path");
@@ -10,7 +11,7 @@ dotenv.config({
   override: false,
 });
 
-const createApplication = require("./app"); 
+const createApplication = require("./app");
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_HOST = "0.0.0.0";
@@ -181,7 +182,6 @@ function installShutdownHandlers() {
       process.exitCode = 0;
     } catch (error) {
       console.error("[server] Graceful shutdown failed:", error);
-
       process.exitCode = 1;
     }
   }
@@ -196,6 +196,8 @@ function installShutdownHandlers() {
 }
 
 async function startServer() {
+  // Render supplies PORT automatically.
+  // Local development falls back to port 3000.
   const port = resolvePort(process.env.PORT);
   const host = resolveHost(process.env.HOST);
 
@@ -216,7 +218,6 @@ async function startServer() {
   await listen(application.server, port, host);
 
   console.log(`[server] Trivia Race listening on http://${host}:${port}`);
-
   console.log(`[server] Environment file: ${envPath}`);
 
   return application;

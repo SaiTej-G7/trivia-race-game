@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/expired-rooms",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     }
   ],
   "functions": {

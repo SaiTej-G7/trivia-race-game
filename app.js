@@ -1,4 +1,3 @@
-
 "use strict";
 
 const path = require("node:path");
@@ -74,11 +73,7 @@ async function closeSocketIO(io) {
 }
 
 async function closeHttpServer(server) {
-  if (
-    !server ||
-    typeof server.close !== "function" ||
-    !server.listening
-  ) {
+  if (!server || typeof server.close !== "function" || !server.listening) {
     return;
   }
 
@@ -97,7 +92,7 @@ async function closeHttpServer(server) {
 async function buildApplication() {
   if (!process.env.REDIS_URL) {
     throw new Error(
-      "Missing REDIS_URL. Configure a Redis connection URL supported by node-redis."
+      "Missing REDIS_URL. Configure a Redis connection URL supported by node-redis.",
     );
   }
 
@@ -108,7 +103,7 @@ async function buildApplication() {
   app.use(
     express.json({
       limit: "32kb",
-    })
+    }),
   );
 
   app.use(
@@ -116,7 +111,7 @@ async function buildApplication() {
       extensions: ["html"],
       index: "index.html",
       fallthrough: true,
-    })
+    }),
   );
 
   app.get("/health", (_req, res) => {
@@ -149,10 +144,7 @@ async function buildApplication() {
   attachRedisErrorLogging(subClient, "subscriber");
 
   try {
-    await Promise.all([
-      pubClient.connect(),
-      subClient.connect(),
-    ]);
+    await Promise.all([pubClient.connect(), subClient.connect()]);
 
     io.adapter(createAdapter(pubClient, subClient));
   } catch (error) {
@@ -164,7 +156,7 @@ async function buildApplication() {
 
     throw new Error(
       `Unable to initialize the Redis-backed Socket.IO adapter: ${error.message}`,
-      { cause: error }
+      { cause: error },
     );
   }
 
@@ -206,13 +198,11 @@ async function buildApplication() {
       } catch (error) {
         console.error(
           `[socket:expiry-middleware] Event "${String(eventName)}" failed its expiration check:`,
-          error
+          error,
         );
 
         next(
-          new Error(
-            "Unable to verify the current game state. Please retry."
-          )
+          new Error("Unable to verify the current game state. Please retry."),
         );
       }
     });
@@ -230,10 +220,7 @@ async function buildApplication() {
     });
 
     socket.on("error", (error) => {
-      console.error(
-        `[socket] Socket error for ${socket.id}:`,
-        error.message
-      );
+      console.error(`[socket] Socket error for ${socket.id}:`, error.message);
     });
   });
 
@@ -271,7 +258,7 @@ async function buildApplication() {
       if (errors.length > 0) {
         throw new AggregateError(
           errors,
-          "One or more application resources failed to close."
+          "One or more application resources failed to close.",
         );
       }
     })();

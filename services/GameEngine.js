@@ -1,7 +1,7 @@
 "use strict";
 
 const MAX_PLAYERS = 6;
-const QUESTION_TIME_MS = 15_000;
+const QUESTION_TIME_MS = 20_000;
 const BETWEEN_ROUNDS_MS = 5_000;
 const COUNTDOWN_MS = 3_000;
 const MATCH_QUESTION_COUNT = 30;
@@ -1009,7 +1009,6 @@ const QUESTION_BANK = [
   ],
 ];
 
-
 // Every match receives exactly 4 Green Boosts and 4 Red Slides.
 function generateBoardEffects() {
   const boostArrows = ["↗", "↖"];
@@ -1236,11 +1235,7 @@ function resolveRound(room, options = {}) {
     throw new TypeError("room must be a plain object.");
   }
 
-  if (
-    room.status !== "playing" ||
-    room.roundResolved ||
-    room.winner
-  ) {
+  if (room.status !== "playing" || room.roundResolved || room.winner) {
     return {
       resolved: false,
       reason: "round_not_active",
@@ -1251,10 +1246,7 @@ function resolveRound(room, options = {}) {
 
   const now = Number.isFinite(options.now) ? options.now : Date.now();
 
-  if (
-    Number.isFinite(Number(room.deadline)) &&
-    Number(room.deadline) > now
-  ) {
+  if (Number.isFinite(Number(room.deadline)) && Number(room.deadline) > now) {
     return {
       resolved: false,
       reason: "deadline_not_expired",
@@ -1277,7 +1269,7 @@ function resolveRound(room, options = {}) {
     }
     if (Array.isArray(collection)) {
       return Object.fromEntries(
-        collection.map((item) => [String(item.playerId ?? item.id), item])
+        collection.map((item) => [String(item.playerId ?? item.id), item]),
       );
     }
     return collection && typeof collection === "object" ? collection : {};
@@ -1289,7 +1281,7 @@ function resolveRound(room, options = {}) {
       (a, b) =>
         (Number(a.joinedAt) || Number.MAX_SAFE_INTEGER) -
           (Number(b.joinedAt) || Number.MAX_SAFE_INTEGER) ||
-        a.id.localeCompare(b.id)
+        a.id.localeCompare(b.id),
     );
 
   const roundAnswers = asRecord(room.roundAnswers);
@@ -1325,7 +1317,7 @@ function resolveRound(room, options = {}) {
       a.answeredAt - b.answeredAt ||
       (Number(a.player.joinedAt) || Number.MAX_SAFE_INTEGER) -
         (Number(b.player.joinedAt) || Number.MAX_SAFE_INTEGER) ||
-      a.player.id.localeCompare(b.player.id)
+      a.player.id.localeCompare(b.player.id),
   );
 
   const correctPlayers = [];
@@ -1363,8 +1355,7 @@ function resolveRound(room, options = {}) {
       moves.push(movement.plan);
 
       if (player.position >= 30) {
-        room.lastRoundResult.message =
-          `${player.name} reached space 30 and won!`;
+        room.lastRoundResult.message = `${player.name} reached space 30 and won!`;
         room.lastRoundResult.winnerPlayerId = player.id;
         room.status = "finished";
         room.deadline = null;
@@ -1403,8 +1394,8 @@ function resolveRound(room, options = {}) {
         makePenaltyPlan(
           player,
           "wrong",
-          `${player.name} chose the wrong answer! (-1 Point, -1 Space)`
-        )
+          `${player.name} chose the wrong answer! (-1 Point, -1 Space)`,
+        ),
       );
     }
   }
@@ -1422,8 +1413,8 @@ function resolveRound(room, options = {}) {
         makePenaltyPlan(
           player,
           "timeout",
-          `${player.name} missed 2+ questions in a row! (-1 Point, -1 Space)`
-        )
+          `${player.name} missed 2+ questions in a row! (-1 Point, -1 Space)`,
+        ),
       );
     }
   }
@@ -1444,7 +1435,7 @@ function resolveRound(room, options = {}) {
           (Number(b.positionReachedAt) || Number.MAX_SAFE_INTEGER) ||
         (Number(a.joinedAt) || Number.MAX_SAFE_INTEGER) -
           (Number(b.joinedAt) || Number.MAX_SAFE_INTEGER) ||
-        a.id.localeCompare(b.id)
+        a.id.localeCompare(b.id),
     );
 
     const winner = rankedPlayers[0] || null;
