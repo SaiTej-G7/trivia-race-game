@@ -10,7 +10,10 @@ const { createAdapter } = require("@socket.io/redis-adapter");
 const { RedisGameService } = require("./services/RedisGameService");
 const { mountConnectionHandlers } = require("./socket/connectionHandlers");
 const { mountGameHandlers } = require("./socket/gameHandlers");
-const { resolveIfExpired } = require("./services/DeadlineWorker");
+const {
+  resolveIfExpired,
+  checkExpiredRooms,
+} = require("./services/DeadlineWorker");
 
 let applicationPromise = null;
 
@@ -158,19 +161,56 @@ async function buildApplication() {
     );
   }
 
-  let gameService;
+  
+let gameService;
+let deadlinePoll = null;
+let deadlinePollRunning = false;
 
-  try {
-    gameService = new RedisGameService();
-  } catch (error) {
-    await Promise.allSettled([
-      closeSocketIO(io),
-      closeRedisClient(pubClient),
-      closeRedisClient(subClient),
-    ]);
+try {
+  gameService = new RedisGameService();
 
-    throw error;
+  deadlinePoll = setInterval(async () => {
+    if (deadlinePollRunning) return;
+
+    deadlinePollRunning = true;
+
+    try {
+      const summary = await checkExpiredRooms({
+        limit: 100,
+        gameService,
+        io,
+      });
+
+      if (summary.failed > 0) {
+        console.error(
+          "[deadline-worker] Some rooms failed:",
+          summary
+        );
+      }
+    } catch (error) {
+      console.error(
+        "[deadline-worker] Poll failed:",
+        error
+      );
+    } finally {
+      deadlinePollRunning = false;
+    }
+  }, 1000);
+
+  deadlinePoll.unref?.();
+} catch (error) {
+  if (deadlinePoll) {
+    clearInterval(deadlinePoll);
   }
+
+  await Promise.allSettled([
+    closeSocketIO(io),
+    closeRedisClient(pubClient),
+    closeRedisClient(subClient),
+  ]);
+
+  throw error;
+}
 
   io.on("connection", (socket) => {
     console.info("[socket] Client connected:", socket.id);
@@ -242,7 +282,12 @@ async function buildApplication() {
     }
 
     closePromise = (async () => {
-      const results = await Promise.allSettled([
+  if (deadlinePoll) {
+    clearInterval(deadlinePoll);
+    deadlinePoll = null;
+  }
+
+  const results = await Promise.allSettled([
         closeSocketIO(io),
         closeHttpServer(server),
         closeRedisClient(pubClient),
