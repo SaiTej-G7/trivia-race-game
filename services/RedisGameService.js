@@ -200,14 +200,11 @@ return 1
 `;
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function assertRoomCode(roomCode) {
-  if (
-    typeof roomCode !== "string" ||
-    !/^[A-HJ-NP-Z2-9]{5}$/.test(roomCode)
-  ) {
+  if (typeof roomCode !== "string" || !/^[A-HJ-NP-Z2-9]{5}$/.test(roomCode)) {
     throw new TypeError("Invalid room code.");
   }
 }
@@ -248,7 +245,7 @@ function parseRecord(raw) {
 
   return {
     version: Number(record.version),
-    room: record.room
+    room: record.room,
   };
 }
 
@@ -259,7 +256,7 @@ class RedisGameService {
 
     if (!url || !token) {
       throw new Error(
-        "RedisGameService requires KV_REST_API_URL and KV_REST_API_TOKEN."
+        "RedisGameService requires KV_REST_API_URL and KV_REST_API_TOKEN.",
       );
     }
 
@@ -274,19 +271,11 @@ class RedisGameService {
 
     assertPositiveInteger(this.lockLeaseMs, "lockLeaseMs");
     assertPositiveInteger(this.lockWaitMs, "lockWaitMs");
-    assertPositiveInteger(
-      this.lockRenewIntervalMs,
-      "lockRenewIntervalMs"
-    );
-    assertPositiveInteger(
-      this.lockPollIntervalMs,
-      "lockPollIntervalMs"
-    );
+    assertPositiveInteger(this.lockRenewIntervalMs, "lockRenewIntervalMs");
+    assertPositiveInteger(this.lockPollIntervalMs, "lockPollIntervalMs");
 
     if (this.lockRenewIntervalMs >= this.lockLeaseMs) {
-      throw new Error(
-        "lockRenewIntervalMs must be less than lockLeaseMs."
-      );
+      throw new Error("lockRenewIntervalMs must be less than lockLeaseMs.");
     }
   }
 
@@ -338,13 +327,13 @@ class RedisGameService {
 
     const record = {
       version: 1,
-      room: cloneJson(room)
+      room: cloneJson(room),
     };
 
     const result = await this.eval(
       LUA_CREATE_ROOM,
       [this.roomKey(roomCode), ROOM_CODES_KEY],
-      [JSON.stringify(record), roomCode]
+      [JSON.stringify(record), roomCode],
     );
 
     return Number(result) === 1;
@@ -368,11 +357,7 @@ class RedisGameService {
     const expiresAt = Date.now() + waitMs;
 
     while (Date.now() < expiresAt) {
-      const result = await this.eval(
-        LUA_ACQUIRE_LOCK,
-        [key],
-        [token, leaseMs]
-      );
+      const result = await this.eval(LUA_ACQUIRE_LOCK, [key], [token, leaseMs]);
 
       if (Number(result) === 1) {
         return {
@@ -381,15 +366,12 @@ class RedisGameService {
           key,
           leaseMs,
           lost: false,
-          released: false
+          released: false,
         };
       }
 
       await sleep(
-        Math.min(
-          this.lockPollIntervalMs,
-          Math.max(1, expiresAt - Date.now())
-        )
+        Math.min(this.lockPollIntervalMs, Math.max(1, expiresAt - Date.now())),
       );
     }
 
@@ -404,7 +386,7 @@ class RedisGameService {
     const result = await this.eval(
       LUA_RENEW_LOCK,
       [lock.key],
-      [lock.token, lock.leaseMs]
+      [lock.token, lock.leaseMs],
     );
 
     const renewed = Number(result) === 1;
@@ -423,11 +405,7 @@ class RedisGameService {
 
     lock.released = true;
 
-    const result = await this.eval(
-      LUA_RELEASE_LOCK,
-      [lock.key],
-      [lock.token]
-    );
+    const result = await this.eval(LUA_RELEASE_LOCK, [lock.key], [lock.token]);
 
     return Number(result) === 1;
   }
@@ -451,18 +429,13 @@ class RedisGameService {
     const nextVersion = expectedVersion + 1;
     const nextRecord = {
       version: nextVersion,
-      room: cloneJson(room)
+      room: cloneJson(room),
     };
 
     const result = await this.eval(
       LUA_SAVE_ROOM_CAS,
       [lock.key, this.roomKey(roomCode)],
-      [
-        lock.token,
-        expectedVersion,
-        JSON.stringify(nextRecord),
-        nextVersion
-      ]
+      [lock.token, expectedVersion, JSON.stringify(nextRecord), nextVersion],
     );
 
     if (
@@ -515,9 +488,7 @@ class RedisGameService {
           const renewed = await this.renewRoomLock(lock);
 
           if (!renewed) {
-            heartbeatError = new Error(
-              `Lost lock lease for room ${roomCode}.`
-            );
+            heartbeatError = new Error(`Lost lock lease for room ${roomCode}.`);
           }
         } catch (error) {
           lock.lost = true;
@@ -542,12 +513,12 @@ class RedisGameService {
         roomCode,
         version: record.version,
         lock,
-        service: this
+        service: this,
       });
 
       if (heartbeatError) {
         throw new Error(
-          `Room lock heartbeat failed: ${heartbeatError.message}`
+          `Room lock heartbeat failed: ${heartbeatError.message}`,
         );
       }
 
@@ -555,20 +526,19 @@ class RedisGameService {
         throw new Error(`Room lock was lost for ${roomCode}.`);
       }
 
-      if (
-        result &&
-        typeof result === "object" &&
-        result.save === false
-      ) {
+      if (result && typeof result === "object" && result.save === false) {
         return result.value;
       }
 
-      await this.saveRoomIfVersion(
-        roomCode,
-        room,
-        record.version,
-        lock
-      );
+      await this.saveRoomIfVersion(roomCode, room, record.version, lock);
+      // Return the callback's actual value, not its { save, value } wrapper.
+      if (
+        result &&
+        typeof result === "object" &&
+        Object.prototype.hasOwnProperty.call(result, "value")
+      ) {
+        return result.value;
+      }
 
       return result;
     } finally {
@@ -583,7 +553,7 @@ class RedisGameService {
       } catch (error) {
         console.error(
           `[RedisGameService] Could not release lock for ${roomCode}:`,
-          error
+          error,
         );
       }
     }
@@ -607,13 +577,8 @@ class RedisGameService {
 
       const result = await this.eval(
         LUA_DELETE_ROOM,
-        [
-          lock.key,
-          this.roomKey(roomCode),
-          ROOM_CODES_KEY,
-          DEADLINE_KEY
-        ],
-        [lock.token, roomCode, record.version]
+        [lock.key, this.roomKey(roomCode), ROOM_CODES_KEY, DEADLINE_KEY],
+        [lock.token, roomCode, record.version],
       );
 
       if (Number(result) !== 1) {
@@ -627,7 +592,7 @@ class RedisGameService {
       } catch (error) {
         console.error(
           `[RedisGameService] Could not release delete lock for ${roomCode}:`,
-          error
+          error,
         );
       }
     }
@@ -638,57 +603,52 @@ class RedisGameService {
    * deadlineMs is an absolute Unix timestamp in milliseconds.
    */
   async scheduleRoomDeadline(roomCode, deadlineMs) {
-  assertRoomCode(roomCode);
+    assertRoomCode(roomCode);
 
-  const deadline = Number(deadlineMs);
+    const deadline = Number(deadlineMs);
 
-  if (!Number.isFinite(deadline) || deadline <= 0) {
-    throw new TypeError("deadlineMs must be a positive timestamp.");
+    if (!Number.isFinite(deadline) || deadline <= 0) {
+      throw new TypeError("deadlineMs must be a positive timestamp.");
+    }
+
+    await this.redis.zadd(DEADLINE_KEY, {
+      score: deadline,
+      member: roomCode,
+    });
+
+    return { roomCode, deadline };
   }
-
-  await this.redis.zadd(DEADLINE_KEY, {
-    score: deadline,
-    member: roomCode,
-  });
-
-  return { roomCode, deadline };
-}
 
   /**
    * Remove a room's deadline index entry.
    */
   async removeRoomDeadline(roomCode) {
-  assertRoomCode(roomCode);
-  return Number(await this.redis.zrem(DEADLINE_KEY, roomCode));
-}
+    assertRoomCode(roomCode);
+    return Number(await this.redis.zrem(DEADLINE_KEY, roomCode));
+  }
 
   /**
    * Return room codes whose indexed deadline is <= now, oldest first.
    */
-  
+
   async getExpiredRoomCodes(now = Date.now(), limit = 100) {
-  const timestamp = Number(now);
+    const timestamp = Number(now);
 
-  if (!Number.isFinite(timestamp) || timestamp < 0) {
-    throw new TypeError("now must be a valid Unix timestamp.");
-  }
+    if (!Number.isFinite(timestamp) || timestamp < 0) {
+      throw new TypeError("now must be a valid Unix timestamp.");
+    }
 
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
-    throw new TypeError("limit must be an integer between 1 and 1000.");
-  }
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
+      throw new TypeError("limit must be an integer between 1 and 1000.");
+    }
 
-  const members = await this.redis.zrangebyscore(
-    DEADLINE_KEY,
-    0,
-    timestamp,
-    {
+    const members = await this.redis.zrangebyscore(DEADLINE_KEY, 0, timestamp, {
       offset: 0,
       count: limit,
-    }
-  );
+    });
 
-   return Array.isArray(members) ? members.map(String) : [];
-}
+    return Array.isArray(members) ? members.map(String) : [];
+  }
 
   /**
    * Read the room-code set. Useful for operational checks and reconciliation.
@@ -705,7 +665,7 @@ class RedisGameService {
   async reconcileRoomDeadline(roomCode) {
     assertRoomCode(roomCode);
 
-    return this.withRoomLock(roomCode, async room => {
+    return this.withRoomLock(roomCode, async (room) => {
       const deadline = Number(room.deadline);
 
       if (
@@ -715,12 +675,12 @@ class RedisGameService {
       ) {
         await this.redis.zadd(DEADLINE_KEY, {
           score: deadline,
-          member: roomCode
+          member: roomCode,
         });
 
         return {
           save: false,
-          value: { scheduled: true, deadline }
+          value: { scheduled: true, deadline },
         };
       }
 
@@ -728,7 +688,7 @@ class RedisGameService {
 
       return {
         save: false,
-        value: { scheduled: false, deadline: null }
+        value: { scheduled: false, deadline: null },
       };
     });
   }
@@ -744,7 +704,7 @@ module.exports = {
     ROOM_PREFIX,
     LOCK_PREFIX,
     DEADLINE_KEY,
-    ROOM_CODES_KEY
+    ROOM_CODES_KEY,
   },
   scripts: {
     LUA_ACQUIRE_LOCK,
@@ -754,6 +714,6 @@ module.exports = {
     LUA_CREATE_ROOM,
     LUA_DELETE_ROOM,
     LUA_SCHEDULE_DEADLINE,
-    LUA_REMOVE_DEADLINE
-  }
+    LUA_REMOVE_DEADLINE,
+  },
 };
