@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const MAX_PLAYERS = 6;
 const QUESTION_TIME_MS = 20_000;
 const BETWEEN_ROUNDS_MS = 5_000;
@@ -1080,6 +1081,164 @@ function generateBoardEffects() {
   }
 
   return fallback;
+}
+
+function shuffle(items) {
+  const copy = items.slice();
+
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+
+  return copy;
+}
+
+// Convert a board position (1–30) into row and column coordinates.
+// Rows are counted from the bottom, and numbering alternates direction.
+function positionToCoordinates(pos) {
+  if (!Number.isInteger(pos) || pos < 1 || pos > 30) {
+    throw new RangeError(`Invalid board position: ${pos}`);
+  }
+
+  const rowFromBottom = Math.floor((pos - 1) / 5);
+
+  const col = rowFromBottom % 2 === 0 ? (pos - 1) % 5 : 4 - ((pos - 1) % 5);
+
+  return { rowFromBottom, col };
+}
+
+// Convert row and column coordinates back to a board position.
+function coordinatesToPosition(rowFromBottom, col) {
+  if (
+    !Number.isInteger(rowFromBottom) ||
+    rowFromBottom < 0 ||
+    rowFromBottom > 5 ||
+    !Number.isInteger(col) ||
+    col < 0 ||
+    col > 4
+  ) {
+    return null;
+  }
+
+  const colFromStart = rowFromBottom % 2 === 0 ? col : 4 - col;
+
+  return rowFromBottom * 5 + colFromStart + 1;
+}
+
+// Defines the direction and type of each board effect.
+const VECTOR_DELTAS = Object.freeze({
+  "↗": { row: 1, col: 1, type: "boost" },
+  "↖": { row: 1, col: -1, type: "boost" },
+  "↙": { row: -1, col: -1, type: "slide" },
+  "↘": { row: -1, col: 1, type: "slide" },
+});
+
+// Build an effect only when its destination is on the board.
+function buildVectorCandidate(origin, arrow) {
+  const originCoords = positionToCoordinates(origin);
+  const delta = VECTOR_DELTAS[arrow];
+
+  if (!delta) {
+    return null;
+  }
+
+  const targetRow = originCoords.rowFromBottom + delta.row;
+  const targetCol = originCoords.col + delta.col;
+
+  if (targetRow < 0 || targetRow > 5 || targetCol < 0 || targetCol > 4) {
+    return null;
+  }
+
+  const destination = coordinatesToPosition(targetRow, targetCol);
+
+  if (!destination) {
+    return null;
+  }
+
+  return {
+    origin,
+    destination,
+    type: delta.type,
+    arrow,
+    label: delta.type === "boost" ? "Boost" : "Slide",
+  };
+}
+
+// Validate that the board contains four boosts, four slides,
+// and no cycles when effects are followed.
+function validateBoardEffects(effects) {
+  const entries = Object.entries(effects || {});
+
+  if (entries.length !== 8) {
+    return false;
+  }
+
+  const boosts = entries.filter(([, rule]) => rule.type === "boost");
+  const slides = entries.filter(([, rule]) => rule.type === "slide");
+
+  if (boosts.length !== 4 || slides.length !== 4) {
+    return false;
+  }
+
+  const origins = new Set();
+
+  for (const [originText, rule] of entries) {
+    const origin = Number(originText);
+
+    if (
+      !Number.isInteger(origin) ||
+      origin < 6 ||
+      origin > 27 ||
+      origins.has(origin)
+    ) {
+      return false;
+    }
+
+    origins.add(origin);
+
+    const expected = buildVectorCandidate(origin, rule.arrow);
+
+    if (
+      !expected ||
+      rule.origin !== expected.origin ||
+      rule.destination !== expected.destination ||
+      rule.type !== expected.type
+    ) {
+      return false;
+    }
+  }
+
+  // Check every effect chain for a cycle.
+  for (const origin of origins) {
+    const visited = new Set();
+    let position = origin;
+
+    while (effects[position]) {
+      if (visited.has(position)) {
+        return false;
+      }
+
+      visited.add(position);
+      position = effects[position].destination;
+    }
+  }
+
+  return true;
+}
+
+// Add a movement step while preserving optional effect information.
+function appendTravelStep(steps, step) {
+  steps.push({
+    type: step.type,
+    from: step.from,
+    to: step.to,
+    durationMs: step.durationMs,
+    ...(step.effectType ? { effectType: step.effectType } : {}),
+    ...(step.arrow ? { arrow: step.arrow } : {}),
+    ...(step.triggerAt ? { triggerAt: step.triggerAt } : {}),
+    ...(step.label ? { label: step.label } : {}),
+  });
 }
 
 function applyCorrectAnswer(room, player, bonusSpace = false) {
