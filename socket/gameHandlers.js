@@ -536,9 +536,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
         resolutionResult = resolveRound(room, { now: Date.now() });
 
         if (resolutionResult.resolved) {
-          room.roundMovementPending = Boolean(
-            resolutionResult.movement && resolutionResult.movement.moves.length,
-          );
+          room.roundMovementPending = room.status === "playing";
           room.roundAnimationAcks = {};
         }
       }
@@ -561,156 +559,158 @@ async function submitAnswer({ io, socket, gameService, payload }) {
   if (resolutionResult && resolutionResult.resolved) {
     await gameService.removeRoomDeadline(roomCode);
 
-    if (resolutionResult.movement) {
-      io.to(roomCode).emit("round:movement", resolutionResult.movement);
-    } else {
-      console.warn(
-        `[game] Round ${roundId} resolved without movement in room ${roomCode}.`,
-      );
+    if (resolutionResult.resolved) {
+      const movementPayload = resolutionResult.movement || {
+        roomCode,
+        roundId: resolutionResult.roundId,
+        moves: [],
+      };
+
+      io.to(roomCode).emit("round:movement", movementPayload);
+      emitState(io, roomCode, updateResult.state);
+
+      return;
     }
 
     emitState(io, roomCode, updateResult.state);
-    return;
   }
 
-  emitState(io, roomCode, updateResult.state);
-}
+  async function animationComplete({ io, socket, gameService, payload }) {
+    const roomCode = socket.data && socket.data.roomCode;
+    const playerId = socket.data && socket.data.playerId;
 
-async function animationComplete({ io, socket, gameService, payload }) {
-  const roomCode = socket.data && socket.data.roomCode;
-  const playerId = socket.data && socket.data.playerId;
+    if (!roomCode || !playerId) return;
 
-  if (!roomCode || !playerId) return;
+    const roundId = Number(payload && payload.roundId);
 
-  const roundId = Number(payload && payload.roundId);
+    if (!Number.isSafeInteger(roundId) || roundId < 1) return;
 
-  if (!Number.isSafeInteger(roundId) || roundId < 1) return;
+    const result = await gameService.withRoomLock(roomCode, async (room) => {
+      const player = room.players && room.players[playerId];
 
-  const result = await gameService.withRoomLock(roomCode, async (room) => {
-    const player = room.players && room.players[playerId];
+      if (
+        !player ||
+        !player.connected ||
+        player.socketId !== socket.id ||
+        room.status !== "playing" ||
+        !room.roundMovementPending ||
+        Number(room.roundId) !== roundId
+      ) {
+        return {
+          save: false,
+          value: {
+            advanced: false,
+            state: publicState(room),
+          },
+        };
+      }
 
-    if (
-      !player ||
-      !player.connected ||
-      player.socketId !== socket.id ||
-      room.status !== "playing" ||
-      !room.roundMovementPending ||
-      Number(room.roundId) !== roundId
-    ) {
-      return {
-        save: false,
-        value: {
-          advanced: false,
-          state: publicState(room),
-        },
-      };
-    }
+      room.roundAnimationAcks = toRecord(room.roundAnimationAcks);
+      room.roundAnimationAcks[playerId] = true;
 
-    room.roundAnimationAcks = toRecord(room.roundAnimationAcks);
-    room.roundAnimationAcks[playerId] = true;
+      const activePlayers = connectedPlayers(room);
+      const allAcknowledged = activePlayers.every((activePlayer) =>
+        Object.prototype.hasOwnProperty.call(
+          room.roundAnimationAcks,
+          activePlayer.id,
+        ),
+      );
 
-    const activePlayers = connectedPlayers(room);
-    const allAcknowledged = activePlayers.every((activePlayer) =>
-      Object.prototype.hasOwnProperty.call(
-        room.roundAnimationAcks,
-        activePlayer.id,
-      ),
-    );
+      if (!allAcknowledged) {
+        return {
+          save: true,
+          value: {
+            advanced: false,
+            state: publicState(room),
+          },
+        };
+      }
 
-    if (!allAcknowledged) {
-      return {
-        save: true,
-        value: {
-          advanced: false,
-          state: publicState(room),
-        },
-      };
-    }
+      room.roundMovementPending = false;
 
-    room.roundMovementPending = false;
+      if (
+        room.deckIndex >= MATCH_QUESTION_COUNT ||
+        room.deckIndex >= room.questionDeck.length
+      ) {
+        finishByDistancePlain(room);
 
-    if (
-      room.deckIndex >= MATCH_QUESTION_COUNT ||
-      room.deckIndex >= room.questionDeck.length
-    ) {
-      finishByDistancePlain(room);
+        return {
+          save: true,
+          value: {
+            advanced: true,
+            finished: true,
+            state: publicState(room),
+          },
+        };
+      }
+
+      const next = nextQuestion(room, Date.now());
+
+      if (!next.started) {
+        finishByDistancePlain(room);
+
+        return {
+          save: true,
+          value: {
+            advanced: true,
+            finished: true,
+            state: publicState(room),
+          },
+        };
+      }
 
       return {
         save: true,
         value: {
           advanced: true,
-          finished: true,
+          finished: false,
+          deadline: next.deadline,
           state: publicState(room),
         },
       };
+    });
+
+    if (!result) return;
+
+    emitState(io, roomCode, result.state);
+
+    if (result.advanced && !result.finished) {
+      await gameService.scheduleRoomDeadline(roomCode, result.deadline);
+    } else if (result.finished) {
+      await gameService.removeRoomDeadline(roomCode);
     }
-
-    const next = nextQuestion(room, Date.now());
-
-    if (!next.started) {
-      finishByDistancePlain(room);
-
-      return {
-        save: true,
-        value: {
-          advanced: true,
-          finished: true,
-          state: publicState(room),
-        },
-      };
-    }
-
-    return {
-      save: true,
-      value: {
-        advanced: true,
-        finished: false,
-        deadline: next.deadline,
-        state: publicState(room),
-      },
-    };
-  });
-
-  if (!result) return;
-
-  emitState(io, roomCode, result.state);
-
-  if (result.advanced && !result.finished) {
-    await gameService.scheduleRoomDeadline(roomCode, result.deadline);
-  } else if (result.finished) {
-    await gameService.removeRoomDeadline(roomCode);
-  }
-}
-
-function mountGameHandlers({ io, socket, gameService }) {
-  if (!io || !socket || !gameService) {
-    throw new TypeError("io, socket, and gameService are required.");
   }
 
-  socket.on("game:start", () => {
-    startGame({ io, socket, gameService }).catch((error) => {
-      console.error("[gameHandlers] game:start failed:", error);
-      emitError(socket, "Unable to start the game right now.");
-    });
-  });
+  function mountGameHandlers({ io, socket, gameService }) {
+    if (!io || !socket || !gameService) {
+      throw new TypeError("io, socket, and gameService are required.");
+    }
 
-  socket.on("answer:submit", (payload) => {
-    submitAnswer({ io, socket, gameService, payload }).catch((error) => {
-      console.error("[gameHandlers] answer:submit failed:", error);
-      emitError(socket, "Unable to submit your answer right now.");
+    socket.on("game:start", () => {
+      startGame({ io, socket, gameService }).catch((error) => {
+        console.error("[gameHandlers] game:start failed:", error);
+        emitError(socket, "Unable to start the game right now.");
+      });
     });
-  });
 
-  socket.on("round:animation-complete", (payload) => {
-    animationComplete({ io, socket, gameService, payload }).catch((error) => {
-      console.error("[gameHandlers] round:animation-complete failed:", error);
-      emitError(socket, "Unable to complete the round animation.");
+    socket.on("answer:submit", (payload) => {
+      submitAnswer({ io, socket, gameService, payload }).catch((error) => {
+        console.error("[gameHandlers] answer:submit failed:", error);
+        emitError(socket, "Unable to submit your answer right now.");
+      });
     });
-  });
+
+    socket.on("round:animation-complete", (payload) => {
+      animationComplete({ io, socket, gameService, payload }).catch((error) => {
+        console.error("[gameHandlers] round:animation-complete failed:", error);
+        emitError(socket, "Unable to complete the round animation.");
+      });
+    });
+  }
+
+  module.exports = {
+    mountGameHandlers,
+    publicState,
+    nextQuestion,
+  };
 }
-
-module.exports = {
-  mountGameHandlers,
-  publicState,
-  nextQuestion,
-};

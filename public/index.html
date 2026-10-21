@@ -2045,67 +2045,112 @@
         floater.remove();
       }
 
+
       async function drainMovementQueue() {
         if (state.movementQueueRunning) return;
+
         state.movementQueueRunning = true;
         state.movementAnimating = true;
+
         const generation = ++state.movementGeneration;
 
         try {
-          while (state.movementQueue.length && generation === state.movementGeneration) {
+          while (
+            state.movementQueue.length > 0 &&
+            generation === state.movementGeneration
+          ) {
             const payload = state.movementQueue.shift();
-            if (!payload || payload.roomCode !== state.roomCode || !Array.isArray(payload.moves)) continue;
-            // Each player's complete path and toast must finish before the next
-            // answer in server timestamp order begins; rebuild resting tokens between paths.
+
+            if (
+              !payload ||
+              payload.roomCode !== state.roomCode ||
+              !Array.isArray(payload.moves) ||
+              payload.roundId == null
+            ) {
+              continue;
+            }
+
+            // An empty moves array is valid: the round still needs an acknowledgement.
             for (const plan of payload.moves) {
               await animatePlayerPlan(plan, generation);
+
               if (generation !== state.movementGeneration) break;
+
               if (state.room) renderBoard(state.room);
             }
-            if (generation === state.movementGeneration) {
-              socket.emit('round:animation-complete', { roundId: payload.roundId });
-            }
+
+            if (generation !== state.movementGeneration) break;
+
+            // Acknowledge even if moves is empty.
+            socket.emit("round:animation-complete", {
+              roomCode: payload.roomCode,
+              roundId: payload.roundId,
+            });
           }
+        } catch (error) {
+          console.error("Race movement animation failed:", error);
+          state.movementQueue = [];
+          state.movementGeneration++;
         } finally {
           if (generation === state.movementGeneration) {
-            $('board').querySelectorAll('.token-floater').forEach(token => token.remove());
+            $("board")
+              .querySelectorAll(".token-floater")
+              .forEach(token => token.remove());
+
             state.movementAnimating = false;
             state.movementQueueRunning = false;
+
             if (state.room) {
               state.visualPositions.clear();
               renderBoard(state.room);
             }
-            // Handle an event appended between the loop's final check and cleanup.
-            if (state.movementQueue.length) drainMovementQueue();
+
+            if (state.movementQueue.length > 0) {
+              void drainMovementQueue();
+            }
+          } else {
+            state.movementAnimating = false;
+            state.movementQueueRunning = false;
           }
         }
       }
 
       function animateRoundMovement(payload) {
-        if (!payload || payload.roomCode !== state.roomCode || !Array.isArray(payload.moves)) return;
-        // Snapshot every resting token before the server's updated positions arrive,
-        // then pin each moving token to its authoritative origin for animation.
+        if (
+          !payload ||
+          payload.roomCode !== state.roomCode ||
+          !Array.isArray(payload.moves) ||
+          payload.roundId == null
+        ) {
+          return;
+        }
+
         if (state.room) {
           state.room.players.forEach(player => {
-            if (!state.visualPositions.has(player.id)) state.visualPositions.set(player.id, player.position);
+            if (!state.visualPositions.has(player.id)) {
+              state.visualPositions.set(player.id, player.position);
+            }
           });
         }
-        payload.moves.forEach(plan => state.visualPositions.set(plan.playerId, plan.fromPosition));
+
+        payload.moves.forEach(plan => {
+          state.visualPositions.set(plan.playerId, plan.fromPosition);
+        });
+
         state.movementQueue.push(payload);
-        if (state.room && !state.movementAnimating) renderBoard(state.room);
+
+        if (state.room && !state.movementAnimating) {
+          renderBoard(state.room);
+        }
+
         drainMovementQueue().catch(error => {
-          console.error('Race movement animation failed:', error);
-          state.movementQueue = [];
-          state.movementQueueRunning = false;
-          state.movementAnimating = false;
-          state.movementGeneration++;
-          $('board').querySelectorAll('.token-floater').forEach(token => token.remove());
-          if (state.room) {
-            state.visualPositions.clear();
-            renderBoard(state.room);
-          }
+          console.error("Unable to process movement queue:", error);
         });
       }
+
+      socket.on("round:movement", payload => {
+        animateRoundMovement(payload);
+      });
 
       function renderPlayers(room) {
         const sorted = room.players.slice().sort(

@@ -144,12 +144,7 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
       };
     }
 
-    room.roundMovementPending = Boolean(
-      resolution.movement &&
-      Array.isArray(resolution.movement.moves) &&
-      resolution.movement.moves.length > 0,
-    );
-
+    room.roundMovementPending = room.status === "playing";
     room.roundAnimationAcks = {};
 
     committedResult = {
@@ -192,11 +187,16 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
   // If the Redis commit fails, execution throws and no event is emitted.
   await gameService.removeRoomDeadline(roomCode);
 
-  if (committedResult && committedResult.movement) {
-    io.to(roomCode).emit("round:movement", committedResult.movement);
-  }
+  if (committedResult && committedResult.resolved) {
+    const movementPayload = committedResult.movement || {
+      roomCode,
+      roundId: committedResult.roundId,
+      moves: [],
+    };
 
-  io.to(roomCode).emit("room:state", committedResult.state);
+    io.to(roomCode).emit("round:movement", movementPayload);
+    io.to(roomCode).emit("room:state", committedResult.state);
+  }
 
   return {
     resolved: true,
