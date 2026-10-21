@@ -161,56 +161,49 @@ async function buildApplication() {
     );
   }
 
-  
-let gameService;
-let deadlinePoll = null;
-let deadlinePollRunning = false;
+  let gameService;
+  let deadlinePoll = null;
+  let deadlinePollRunning = false;
 
-try {
-  gameService = new RedisGameService();
+  try {
+    gameService = new RedisGameService();
 
-  deadlinePoll = setInterval(async () => {
-    if (deadlinePollRunning) return;
+    deadlinePoll = setInterval(async () => {
+      if (deadlinePollRunning) return;
 
-    deadlinePollRunning = true;
+      deadlinePollRunning = true;
 
-    try {
-      const summary = await checkExpiredRooms({
-        limit: 100,
-        gameService,
-        io,
-      });
+      try {
+        const summary = await checkExpiredRooms({
+          limit: 100,
+          gameService,
+          io,
+        });
 
-      if (summary.failed > 0) {
-        console.error(
-          "[deadline-worker] Some rooms failed:",
-          summary
-        );
+        if (summary.failed > 0) {
+          console.error("[deadline-worker] Some rooms failed:", summary);
+        }
+      } catch (error) {
+        console.error("[deadline-worker] Poll failed:", error);
+      } finally {
+        deadlinePollRunning = false;
       }
-    } catch (error) {
-      console.error(
-        "[deadline-worker] Poll failed:",
-        error
-      );
-    } finally {
-      deadlinePollRunning = false;
+    }, 1000);
+
+    deadlinePoll.unref?.();
+  } catch (error) {
+    if (deadlinePoll) {
+      clearInterval(deadlinePoll);
     }
-  }, 1000);
 
-  deadlinePoll.unref?.();
-} catch (error) {
-  if (deadlinePoll) {
-    clearInterval(deadlinePoll);
+    await Promise.allSettled([
+      closeSocketIO(io),
+      closeRedisClient(pubClient),
+      closeRedisClient(subClient),
+    ]);
+
+    throw error;
   }
-
-  await Promise.allSettled([
-    closeSocketIO(io),
-    closeRedisClient(pubClient),
-    closeRedisClient(subClient),
-  ]);
-
-  throw error;
-}
 
   io.on("connection", (socket) => {
     console.info("[socket] Client connected:", socket.id);
@@ -282,12 +275,12 @@ try {
     }
 
     closePromise = (async () => {
-  if (deadlinePoll) {
-    clearInterval(deadlinePoll);
-    deadlinePoll = null;
-  }
+      if (deadlinePoll) {
+        clearInterval(deadlinePoll);
+        deadlinePoll = null;
+      }
 
-  const results = await Promise.allSettled([
+      const results = await Promise.allSettled([
         closeSocketIO(io),
         closeHttpServer(server),
         closeRedisClient(pubClient),

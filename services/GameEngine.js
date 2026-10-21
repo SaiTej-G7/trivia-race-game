@@ -1583,8 +1583,6 @@ function resolveRound(room, options = {}) {
     ? `${correctPlayers.length} player${correctPlayers.length === 1 ? "" : "s"} got it right this round!`
     : "Time is up! No correct answers this round.";
 
-  
-
   if (room.deckIndex >= MATCH_QUESTION_COUNT) {
     const rankedPlayers = [...players].sort(
       (a, b) =>

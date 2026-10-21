@@ -24,15 +24,14 @@ function hasPlayerEntry(collection, playerId) {
   if (Array.isArray(collection)) {
     return collection.some(
       (entry) =>
-        entry &&
-        (entry.playerId === playerId || entry.id === playerId)
+        entry && (entry.playerId === playerId || entry.id === playerId),
     );
   }
 
   return Boolean(
     collection &&
-      typeof collection === "object" &&
-      Object.prototype.hasOwnProperty.call(collection, playerId)
+    typeof collection === "object" &&
+    Object.prototype.hasOwnProperty.call(collection, playerId),
   );
 }
 
@@ -91,82 +90,75 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
 
   let committedResult;
 
-  const result = await gameService.withRoomLock(
-    roomCode,
-    async (room) => {
-      const now = Date.now();
-      const deadline = Number(room.deadline);
+  const result = await gameService.withRoomLock(roomCode, async (room) => {
+    const now = Date.now();
+    const deadline = Number(room.deadline);
 
-      if (
-        room.status !== "playing" ||
-        room.roundResolved ||
-        room.winner
-      ) {
-        return {
-          save: false,
-          value: {
-            resolved: false,
-            reason: "round_not_active",
-            deadlineAction: "remove",
-          },
-        };
-      }
-
-      if (!Number.isFinite(deadline) || deadline <= 0) {
-        return {
-          save: false,
-          value: {
-            resolved: false,
-            reason: "invalid_deadline",
-            deadlineAction: "remove",
-          },
-        };
-      }
-
-      if (deadline > now) {
-        return {
-          save: false,
-          value: {
-            resolved: false,
-            reason: "deadline_not_expired",
-            deadlineAction: "reschedule",
-            deadline,
-          },
-        };
-      }
-
-      const resolution = resolveRound(room, { now });
-
-      if (!resolution.resolved) {
-        return {
-          save: false,
-          value: {
-            ...resolution,
-            deadlineAction:
-              resolution.reason === "deadline_not_expired"
-                ? "reschedule"
-                : "remove",
-            deadline: room.deadline,
-          },
-        };
-      }
-
-      room.roundMovementPending = Boolean(
-  resolution.movement &&
-  Array.isArray(resolution.movement.moves) &&
-  resolution.movement.moves.length > 0
-);
-
-room.roundAnimationAcks = {};
-
-      committedResult = {
-        ...resolution,
-        state: publicState(room),
+    if (room.status !== "playing" || room.roundResolved || room.winner) {
+      return {
+        save: false,
+        value: {
+          resolved: false,
+          reason: "round_not_active",
+          deadlineAction: "remove",
+        },
       };
-
-      return committedResult;
     }
-  );
+
+    if (!Number.isFinite(deadline) || deadline <= 0) {
+      return {
+        save: false,
+        value: {
+          resolved: false,
+          reason: "invalid_deadline",
+          deadlineAction: "remove",
+        },
+      };
+    }
+
+    if (deadline > now) {
+      return {
+        save: false,
+        value: {
+          resolved: false,
+          reason: "deadline_not_expired",
+          deadlineAction: "reschedule",
+          deadline,
+        },
+      };
+    }
+
+    const resolution = resolveRound(room, { now });
+
+    if (!resolution.resolved) {
+      return {
+        save: false,
+        value: {
+          ...resolution,
+          deadlineAction:
+            resolution.reason === "deadline_not_expired"
+              ? "reschedule"
+              : "remove",
+          deadline: room.deadline,
+        },
+      };
+    }
+
+    room.roundMovementPending = Boolean(
+      resolution.movement &&
+      Array.isArray(resolution.movement.moves) &&
+      resolution.movement.moves.length > 0,
+    );
+
+    room.roundAnimationAcks = {};
+
+    committedResult = {
+      ...resolution,
+      state: publicState(room),
+    };
+
+    return committedResult;
+  });
 
   if (!result || typeof result !== "object") {
     return {
@@ -213,11 +205,7 @@ room.roundAnimationAcks = {};
   };
 }
 
-async function checkExpiredRooms({
-  limit = 100,
-  gameService,
-  io,
-} = {}) {
+async function checkExpiredRooms({ limit = 100, gameService, io } = {}) {
   if (!gameService || !io) {
     throw new TypeError("gameService and io are required.");
   }
@@ -248,7 +236,7 @@ async function checkExpiredRooms({
       } catch (error) {
         console.error(
           `[DeadlineWorker] Failed to process room ${roomCode}:`,
-          error
+          error,
         );
 
         return {
@@ -258,7 +246,7 @@ async function checkExpiredRooms({
           error: error.message,
         };
       }
-    })
+    }),
   );
 
   for (const outcome of outcomes) {

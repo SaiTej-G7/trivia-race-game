@@ -34,7 +34,7 @@ function toRecord(collection) {
     return Object.fromEntries(
       collection
         .filter((entry) => entry && typeof entry.playerId === "string")
-        .map((entry) => [entry.playerId, entry])
+        .map((entry) => [entry.playerId, entry]),
     );
   }
 
@@ -50,10 +50,7 @@ function shuffle(items) {
 
   for (let index = result.length - 1; index > 0; index -= 1) {
     const swapIndex = crypto.randomInt(0, index + 1);
-    [result[index], result[swapIndex]] = [
-      result[swapIndex],
-      result[index],
-    ];
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
   }
 
   return result;
@@ -82,17 +79,12 @@ function getCurrentPlayer(room, socket) {
     return null;
   }
 
-  const players = room.players && typeof room.players === "object"
-    ? room.players
-    : {};
+  const players =
+    room.players && typeof room.players === "object" ? room.players : {};
 
   const player = players[socket.data.playerId];
 
-  if (
-    !player ||
-    !player.connected ||
-    player.socketId !== socket.id
-  ) {
+  if (!player || !player.connected || player.socketId !== socket.id) {
     return null;
   }
 
@@ -105,7 +97,7 @@ function connectedPlayers(room) {
     .sort(
       (a, b) =>
         (Number(a.joinedAt) || 0) - (Number(b.joinedAt) || 0) ||
-        String(a.id).localeCompare(String(b.id))
+        String(a.id).localeCompare(String(b.id)),
     );
 }
 
@@ -163,7 +155,7 @@ function chooseDistanceWinnerPlain(room) {
         (Number(b.positionReachedAt) || Number.MAX_SAFE_INTEGER) ||
       (Number(a.joinedAt) || Number.MAX_SAFE_INTEGER) -
         (Number(b.joinedAt) || Number.MAX_SAFE_INTEGER) ||
-      String(a.id).localeCompare(String(b.id))
+      String(a.id).localeCompare(String(b.id)),
   );
 
   return players[0] || null;
@@ -246,7 +238,7 @@ async function startGame({ io, socket, gameService }) {
 
     if (QUESTION_BANK.length < MATCH_QUESTION_COUNT) {
       throw new Error(
-        `Question bank must contain at least ${MATCH_QUESTION_COUNT} questions.`
+        `Question bank must contain at least ${MATCH_QUESTION_COUNT} questions.`,
       );
     }
 
@@ -262,7 +254,7 @@ async function startGame({ io, socket, gameService }) {
 
     if (questionDeck.length !== MATCH_QUESTION_COUNT) {
       throw new Error(
-        `Expected exactly ${MATCH_QUESTION_COUNT} questions per match.`
+        `Expected exactly ${MATCH_QUESTION_COUNT} questions per match.`,
       );
     }
 
@@ -312,10 +304,7 @@ async function startGame({ io, socket, gameService }) {
   });
 
   if (!result || result.error) {
-    emitError(
-      socket,
-      (result && result.error) || "Unable to start the game."
-    );
+    emitError(socket, (result && result.error) || "Unable to start the game.");
     return;
   }
 
@@ -371,9 +360,7 @@ async function recordAnswerOnce({
 
     room.roundAnswers = toRecord(room.roundAnswers);
 
-    if (
-      Object.prototype.hasOwnProperty.call(room.roundAnswers, playerId)
-    ) {
+    if (Object.prototype.hasOwnProperty.call(room.roundAnswers, playerId)) {
       return {
         save: false,
         value: {
@@ -388,8 +375,7 @@ async function recordAnswerOnce({
       answeredAt,
     };
 
-    const correct =
-      choiceIndex === room.currentQuestion.correctIndex;
+    const correct = choiceIndex === room.currentQuestion.correctIndex;
 
     room.roundCorrect = toRecord(room.roundCorrect);
 
@@ -408,8 +394,8 @@ async function recordAnswerOnce({
         allConnectedAnswered: connectedPlayers(room).every((activePlayer) =>
           Object.prototype.hasOwnProperty.call(
             room.roundAnswers,
-            activePlayer.id
-          )
+            activePlayer.id,
+          ),
         ),
       },
     };
@@ -433,7 +419,11 @@ async function submitAnswer({ io, socket, gameService, payload }) {
     return;
   }
 
-  if (!Number.isSafeInteger(choiceIndex) || choiceIndex < 0 || choiceIndex > 3) {
+  if (
+    !Number.isSafeInteger(choiceIndex) ||
+    choiceIndex < 0 ||
+    choiceIndex > 3
+  ) {
     emitError(socket, "Please choose a valid answer.");
     return;
   }
@@ -447,8 +437,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
     return;
   }
 
-  const playerSnapshot =
-    roomSnapshot.players && roomSnapshot.players[playerId];
+  const playerSnapshot = roomSnapshot.players && roomSnapshot.players[playerId];
 
   if (
     !playerSnapshot ||
@@ -498,7 +487,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
       socket,
       reason === "already_answered"
         ? "You have already answered this question."
-        : "This question is closed or your answer could not be accepted."
+        : "This question is closed or your answer could not be accepted.",
     );
 
     return;
@@ -540,7 +529,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
       const allAnswered =
         activePlayers.length > 0 &&
         activePlayers.every((activePlayer) =>
-          Object.prototype.hasOwnProperty.call(answers, activePlayer.id)
+          Object.prototype.hasOwnProperty.call(answers, activePlayer.id),
         );
 
       if (allAnswered) {
@@ -548,7 +537,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
 
         if (resolutionResult.resolved) {
           room.roundMovementPending = Boolean(
-            resolutionResult.movement && resolutionResult.movement.moves.length
+            resolutionResult.movement && resolutionResult.movement.moves.length,
           );
           room.roundAnimationAcks = {};
         }
@@ -562,7 +551,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
           resolution: resolutionResult,
         },
       };
-    }
+    },
   );
 
   if (!updateResult) {
@@ -574,6 +563,10 @@ async function submitAnswer({ io, socket, gameService, payload }) {
 
     if (resolutionResult.movement) {
       io.to(roomCode).emit("round:movement", resolutionResult.movement);
+    } else {
+      console.warn(
+        `[game] Round ${roundId} resolved without movement in room ${roomCode}.`,
+      );
     }
 
     emitState(io, roomCode, updateResult.state);
@@ -593,93 +586,90 @@ async function animationComplete({ io, socket, gameService, payload }) {
 
   if (!Number.isSafeInteger(roundId) || roundId < 1) return;
 
-  const result = await gameService.withRoomLock(
-    roomCode,
-    async (room) => {
-      const player = room.players && room.players[playerId];
+  const result = await gameService.withRoomLock(roomCode, async (room) => {
+    const player = room.players && room.players[playerId];
 
-      if (
-        !player ||
-        !player.connected ||
-        player.socketId !== socket.id ||
-        room.status !== "playing" ||
-        !room.roundMovementPending ||
-        Number(room.roundId) !== roundId
-      ) {
-        return {
-          save: false,
-          value: {
-            advanced: false,
-            state: publicState(room),
-          },
-        };
-      }
+    if (
+      !player ||
+      !player.connected ||
+      player.socketId !== socket.id ||
+      room.status !== "playing" ||
+      !room.roundMovementPending ||
+      Number(room.roundId) !== roundId
+    ) {
+      return {
+        save: false,
+        value: {
+          advanced: false,
+          state: publicState(room),
+        },
+      };
+    }
 
-      room.roundAnimationAcks = toRecord(room.roundAnimationAcks);
-      room.roundAnimationAcks[playerId] = true;
+    room.roundAnimationAcks = toRecord(room.roundAnimationAcks);
+    room.roundAnimationAcks[playerId] = true;
 
-      const activePlayers = connectedPlayers(room);
-      const allAcknowledged = activePlayers.every((activePlayer) =>
-        Object.prototype.hasOwnProperty.call(
-          room.roundAnimationAcks,
-          activePlayer.id
-        )
-      );
+    const activePlayers = connectedPlayers(room);
+    const allAcknowledged = activePlayers.every((activePlayer) =>
+      Object.prototype.hasOwnProperty.call(
+        room.roundAnimationAcks,
+        activePlayer.id,
+      ),
+    );
 
-      if (!allAcknowledged) {
-        return {
-          save: true,
-          value: {
-            advanced: false,
-            state: publicState(room),
-          },
-        };
-      }
+    if (!allAcknowledged) {
+      return {
+        save: true,
+        value: {
+          advanced: false,
+          state: publicState(room),
+        },
+      };
+    }
 
-      room.roundMovementPending = false;
+    room.roundMovementPending = false;
 
-      if (
-        room.deckIndex >= MATCH_QUESTION_COUNT ||
-        room.deckIndex >= room.questionDeck.length
-      ) {
-        finishByDistancePlain(room);
-
-        return {
-          save: true,
-          value: {
-            advanced: true,
-            finished: true,
-            state: publicState(room),
-          },
-        };
-      }
-
-      const next = nextQuestion(room, Date.now());
-
-      if (!next.started) {
-        finishByDistancePlain(room);
-
-        return {
-          save: true,
-          value: {
-            advanced: true,
-            finished: true,
-            state: publicState(room),
-          },
-        };
-      }
+    if (
+      room.deckIndex >= MATCH_QUESTION_COUNT ||
+      room.deckIndex >= room.questionDeck.length
+    ) {
+      finishByDistancePlain(room);
 
       return {
         save: true,
         value: {
           advanced: true,
-          finished: false,
-          deadline: next.deadline,
+          finished: true,
           state: publicState(room),
         },
       };
     }
-  );
+
+    const next = nextQuestion(room, Date.now());
+
+    if (!next.started) {
+      finishByDistancePlain(room);
+
+      return {
+        save: true,
+        value: {
+          advanced: true,
+          finished: true,
+          state: publicState(room),
+        },
+      };
+    }
+
+    return {
+      save: true,
+      value: {
+        advanced: true,
+        finished: false,
+        deadline: next.deadline,
+        state: publicState(room),
+      },
+    };
+  });
 
   if (!result) return;
 
@@ -713,10 +703,7 @@ function mountGameHandlers({ io, socket, gameService }) {
 
   socket.on("round:animation-complete", (payload) => {
     animationComplete({ io, socket, gameService, payload }).catch((error) => {
-      console.error(
-        "[gameHandlers] round:animation-complete failed:",
-        error
-      );
+      console.error("[gameHandlers] round:animation-complete failed:", error);
       emitError(socket, "Unable to complete the round animation.");
     });
   });
