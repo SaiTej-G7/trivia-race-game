@@ -707,23 +707,41 @@ class RedisGameService {
    * Return room codes whose indexed deadline is <= now, oldest first.
    */
 
+  
   async getExpiredRoomCodes(now = Date.now(), limit = 100) {
     const timestamp = Number(now);
 
     if (!Number.isFinite(timestamp) || timestamp < 0) {
-      throw new TypeError("now must be a valid Unix timestamp.");
+      throw new TypeError(
+        "now must be a valid Unix timestamp."
+      );
     }
 
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
-      throw new TypeError("limit must be an integer between 1 and 1000.");
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 1000
+    ) {
+      throw new TypeError(
+        "limit must be an integer between 1 and 1000."
+      );
     }
 
-    const members = await this.redis.zrangebyscore(DEADLINE_KEY, 0, timestamp, {
-      offset: 0,
-      count: limit,
-    });
+    // Upstash Redis uses zrange with byScore for this query.
+    const members = await this.redis.zrange(
+      DEADLINE_KEY,
+      0,
+      timestamp,
+      {
+        byScore: true,
+        offset: 0,
+        count: limit,
+      }
+    );
 
-    return Array.isArray(members) ? members.map(String) : [];
+    return Array.isArray(members)
+      ? members.map(String)
+      : [];
   }
 
   /**

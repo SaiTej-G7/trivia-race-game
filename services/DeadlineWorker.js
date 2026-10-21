@@ -151,6 +151,14 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
         };
       }
 
+      room.roundMovementPending = Boolean(
+  resolution.movement &&
+  Array.isArray(resolution.movement.moves) &&
+  resolution.movement.moves.length > 0
+);
+
+room.roundAnimationAcks = {};
+
       committedResult = {
         ...resolution,
         state: publicState(room),
