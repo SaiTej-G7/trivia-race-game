@@ -462,6 +462,18 @@
       transition: background .15s, border-color .15s, transform .15s;
     }
 
+
+    .answer-btn.selected {
+      border: 2px solid var(--blue);
+      background: #20395d;
+      box-shadow: 0 0 0 2px #6ea8fe30, 0 0 18px #6ea8fe35;
+    }
+
+    .answer-btn.selected .answer-letter {
+      background: var(--blue);
+      color: #07162b;
+    }
+
     .answer-btn:not(:disabled):hover {
       border-color: var(--mint);
       background: #18312f;
@@ -1709,6 +1721,7 @@
         toastTimer: null,
         attemptedRoundIds: new Set(),
         feedbackByRound: new Map(),
+        selectedChoiceByRound: new Map(),
         winnerShownFor: null,
         visualPositions: new Map(),
         movementAnimating: false,
@@ -2282,25 +2295,34 @@
         $('questionCategory').textContent = `${question.category} · Q${room.roundNumber || room.roundId}`;
         $('questionText').textContent = question.text;
 
+
         const attempted = state.attemptedRoundIds.has(room.roundId);
         const feedback = state.feedbackByRound.get(room.roundId);
+        const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
 
         answers.innerHTML = question.choices.map((choice, i) => {
           let cls = 'answer-btn';
+
+          if (selectedChoice === i) {
+            cls += ' selected';
+          }
 
           if (feedback && feedback.choiceIndex === i) {
             cls += feedback.correct ? ' correct' : ' wrong';
           }
 
           return `
-      <button class="${cls}" data-choice="${i}" ${attempted ? 'disabled' : ''}>
-        <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
-        <span>${escapeHtml(choice)}</span>
-        ${feedback && feedback.choiceIndex === i
-              ? (feedback.correct ? '<span style="margin-left:auto">✓</span>' : '<span style="margin-left:auto">×</span>')
+    <button class="${cls}" data-choice="${i}" ${attempted ? 'disabled' : ''}>
+      <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
+      <span>${escapeHtml(choice)}</span>
+      ${feedback && feedback.choiceIndex === i
+              ? (feedback.correct
+                ? '<span style="margin-left:auto">✓</span>'
+                : '<span style="margin-left:auto">×</span>')
               : ''}
-      </button>`;
+    </button>`;
         }).join('');
+
 
         answers.querySelectorAll('[data-choice]').forEach(button => {
           button.addEventListener('click', () => {
@@ -2339,10 +2361,11 @@
 
         const myPlayer = room.players.find(player => player.id === state.playerId);
 
-        if (room.status === 'playing' && myPlayer) {
-          if (myPlayer.answered) state.attemptedRoundIds.add(room.roundId);
-          else state.attemptedRoundIds.delete(room.roundId);
+
+        if (room.status === 'playing' && myPlayer && myPlayer.answered) {
+          state.attemptedRoundIds.add(room.roundId);
         }
+
 
         $('roomCodeDisplay').textContent = room.roomCode;
         $('phaseLabel').textContent = ({
@@ -2406,19 +2429,35 @@
         }
       }
 
+
       function submitAnswer(choiceIndex, roundId) {
         if (
           !state.room ||
           state.room.status !== 'playing' ||
           state.room.roundResolved ||
           state.attemptedRoundIds.has(roundId)
-        ) return;
+        ) {
+          return;
+        }
 
+        // Save the selection before emitting the socket event.
+        // Future renders can restore its highlight.
+        state.selectedChoiceByRound.set(roundId, choiceIndex);
         state.attemptedRoundIds.add(roundId);
-        $('answers').querySelectorAll('button').forEach(button => button.disabled = true);
-        setQuestionStatus('Answer sent! Movement begins after the round closes.');
+
+        $('answers').querySelectorAll('[data-choice]').forEach(button => {
+          const isSelected = Number(button.dataset.choice) === choiceIndex;
+          button.classList.toggle('selected', isSelected);
+          button.disabled = true;
+        });
+
+        setQuestionStatus(
+          'Answer submitted! Your selection stays highlighted until feedback arrives.'
+        );
+
         socket.emit('answer:submit', { roundId, choiceIndex });
       }
+
 
       function createRoom() {
         const name = $('playerName').value.trim();
@@ -2660,16 +2699,18 @@
       socket.on('room:state', room => {
         if (!state.roomCode || room.roomCode !== state.roomCode) return;
 
+
         const oldRound = state.room && state.room.roundId;
 
-
-
-        if (oldRound !== room.roundId) {
+        if (oldRound != null && oldRound !== room.roundId) {
           state.feedbackByRound.delete(oldRound);
-          if (room.roundId) state.attemptedRoundIds.delete(room.roundId);
+          state.selectedChoiceByRound.delete(oldRound);
+          state.attemptedRoundIds.delete(oldRound);
+          state.selectedChoiceByRound.clear();
         }
 
         renderState(room);
+
       });
 
       socket.on('round:movement', payload => {

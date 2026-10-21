@@ -1011,6 +1011,7 @@ const QUESTION_BANK = [
 ];
 
 // Every match receives exactly 4 Green Boosts and 4 Red Slides.
+
 function generateBoardEffects() {
   const boostArrows = ["↗", "↖"];
   const slideArrows = ["↙", "↘"];
@@ -1029,25 +1030,29 @@ function generateBoardEffects() {
     }
   }
 
-  for (let attempt = 0; attempt < 2_000; attempt++) {
+  for (let attempt = 0; attempt < 10000; attempt++) {
     const effects = {};
     const usedOrigins = new Set();
+
     const shuffledBoosts = shuffle(boostCandidates);
     const shuffledSlides = shuffle(slideCandidates);
+
     let boostCount = 0;
     let slideCount = 0;
 
     for (const candidate of shuffledBoosts) {
-      if (boostCount === 4) break;
+      if (boostCount >= 4) break;
       if (usedOrigins.has(candidate.origin)) continue;
+
       effects[candidate.origin] = { ...candidate };
       usedOrigins.add(candidate.origin);
       boostCount++;
     }
 
     for (const candidate of shuffledSlides) {
-      if (slideCount === 4) break;
+      if (slideCount >= 4) break;
       if (usedOrigins.has(candidate.origin)) continue;
+
       effects[candidate.origin] = { ...candidate };
       usedOrigins.add(candidate.origin);
       slideCount++;
@@ -1058,29 +1063,10 @@ function generateBoardEffects() {
     }
   }
 
-  const fallback = {};
-  const fallbackCandidates = [
-    buildVectorCandidate(7, "↗"),
-    buildVectorCandidate(8, "↖"),
-    buildVectorCandidate(12, "↗"),
-    buildVectorCandidate(13, "↖"),
-    buildVectorCandidate(17, "↙"),
-    buildVectorCandidate(18, "↘"),
-    buildVectorCandidate(22, "↙"),
-    buildVectorCandidate(23, "↘"),
-  ];
-
-  for (const candidate of fallbackCandidates) {
-    if (candidate) fallback[candidate.origin] = { ...candidate };
-  }
-
-  if (!validateBoardEffects(fallback)) {
-    throw new Error(
-      "Unable to generate a validated acyclic 4-boost/4-slide board.",
-    );
-  }
-
-  return fallback;
+  throw new Error(
+    "Unable to generate a valid board with four boosts, four slides," +
+      "the horizontal spacing rules, and no movement cycles.",
+  );
 }
 
 function shuffle(items) {
@@ -1167,21 +1153,19 @@ function buildVectorCandidate(origin, arrow) {
 
 // Validate that the board contains four boosts, four slides,
 // and no cycles when effects are followed.
+
 function validateBoardEffects(effects) {
   const entries = Object.entries(effects || {});
 
-  if (entries.length !== 8) {
-    return false;
-  }
+  if (entries.length !== 8) return false;
 
   const boosts = entries.filter(([, rule]) => rule.type === "boost");
   const slides = entries.filter(([, rule]) => rule.type === "slide");
 
-  if (boosts.length !== 4 || slides.length !== 4) {
-    return false;
-  }
+  if (boosts.length !== 4 || slides.length !== 4) return false;
 
   const origins = new Set();
+  const slidesByRow = new Map();
 
   for (const [originText, rule] of entries) {
     const origin = Number(originText);
@@ -1190,7 +1174,9 @@ function validateBoardEffects(effects) {
       !Number.isInteger(origin) ||
       origin < 6 ||
       origin > 27 ||
-      origins.has(origin)
+      origins.has(origin) ||
+      !rule ||
+      typeof rule !== "object"
     ) {
       return false;
     }
@@ -1207,17 +1193,39 @@ function validateBoardEffects(effects) {
     ) {
       return false;
     }
+
+    if (rule.type === "slide") {
+      // Board rows contain positions 1–5, 6–10, ... 26–30.
+      const row = Math.floor((origin - 1) / 5);
+
+      if (!slidesByRow.has(row)) {
+        slidesByRow.set(row, []);
+      }
+
+      slidesByRow.get(row).push(origin);
+    }
   }
 
-  // Check every effect chain for a cycle.
+  // At most two red slides per horizontal row.
+  // If there are two, their positions must differ by 2 or 4:
+  // one or three spaces between them, respectively.
+  for (const rowSlides of slidesByRow.values()) {
+    if (rowSlides.length > 2) return false;
+
+    if (rowSlides.length === 2) {
+      const gap = Math.abs(rowSlides[0] - rowSlides[1]);
+
+      if (gap !== 2 && gap !== 4) return false;
+    }
+  }
+
+  // Reject any cycle when following board effects.
   for (const origin of origins) {
     const visited = new Set();
     let position = origin;
 
     while (effects[position]) {
-      if (visited.has(position)) {
-        return false;
-      }
+      if (visited.has(position)) return false;
 
       visited.add(position);
       position = effects[position].destination;
@@ -1242,7 +1250,7 @@ function appendTravelStep(steps, step) {
 }
 
 function applyCorrectAnswer(room, player, bonusSpace = false) {
-  player.score = (player.score || 0) + 1;
+  player.score = (Number(player.score) || 0) + 1;
 
   const fromPosition = player.position;
   const normalDestination = Math.min(30, fromPosition + 2);
@@ -1251,42 +1259,63 @@ function applyCorrectAnswer(room, player, bonusSpace = false) {
 
   while (current < normalDestination) {
     const next = current + 1;
+
     appendTravelStep(steps, {
       type: "normal",
       from: current,
       to: next,
       durationMs: 360,
     });
+
     current = next;
   }
 
   if (bonusSpace && current < 30) {
     const next = Math.min(30, current + 1);
+
     appendTravelStep(steps, {
       type: "bonus",
       from: current,
       to: next,
       durationMs: 420,
     });
+
     current = next;
   }
 
   let firstEffect = null;
   const visited = new Set();
 
-  while (current < 30 && room.boardEffects[current]) {
+  while (current < 30 && room.boardEffects?.[current]) {
     if (visited.has(current)) {
-      throw new Error(`Board effect cycle encountered at space ${current}.`);
+      console.error(
+        `[GameEngine] Cycle detected at space ${current}; stopping traversal safely.`,
+      );
+      break;
     }
 
     visited.add(current);
+
     const rule = room.boardEffects[current];
+    const destination = Number(rule.destination);
+
+    if (
+      !Number.isInteger(destination) ||
+      destination < 1 ||
+      destination > 30 ||
+      destination === current
+    ) {
+      console.error(
+        `[GameEngine] Invalid board effect at space ${current}; stopping traversal.`,
+      );
+      break;
+    }
 
     if (!firstEffect) {
       firstEffect = {
         type: rule.type,
         from: current,
-        to: rule.destination,
+        to: destination,
         label: rule.label,
         arrow: rule.arrow,
       };
@@ -1297,13 +1326,13 @@ function applyCorrectAnswer(room, player, bonusSpace = false) {
       effectType: rule.type,
       arrow: rule.arrow,
       from: current,
-      to: rule.destination,
+      to: destination,
       triggerAt: current,
       durationMs: 560,
       label: rule.label,
     });
 
-    current = rule.destination;
+    current = destination;
   }
 
   player.position = Math.max(1, Math.min(30, current));

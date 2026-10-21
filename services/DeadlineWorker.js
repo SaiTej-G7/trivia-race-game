@@ -88,8 +88,6 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
     throw new TypeError("roomCode, gameService, and io are required.");
   }
 
-  let committedResult;
-
   const result = await gameService.withRoomLock(roomCode, async (room) => {
     const now = Date.now();
     const deadline = Number(room.deadline);
@@ -147,12 +145,10 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
     room.roundMovementPending = room.status === "playing";
     room.roundAnimationAcks = {};
 
-    committedResult = {
+    return {
       ...resolution,
       state: publicState(room),
     };
-
-    return committedResult;
   });
 
   if (!result || typeof result !== "object") {
@@ -183,20 +179,16 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
     };
   }
 
-  // The room state is committed by withRoomLock before any broadcasts occur.
-  // If the Redis commit fails, execution throws and no event is emitted.
   await gameService.removeRoomDeadline(roomCode);
 
-  if (committedResult && committedResult.resolved) {
-    const movementPayload = committedResult.movement || {
-      roomCode,
-      roundId: committedResult.roundId,
-      moves: [],
-    };
+  const movementPayload = result.movement || {
+    roomCode,
+    roundId: result.roundId,
+    moves: [],
+  };
 
-    io.to(roomCode).emit("round:movement", movementPayload);
-    io.to(roomCode).emit("room:state", committedResult.state);
-  }
+  io.to(roomCode).emit("round:movement", movementPayload);
+  io.to(roomCode).emit("room:state", result.state);
 
   return {
     resolved: true,

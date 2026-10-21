@@ -22,9 +22,7 @@ function makeRoomCode() {
   let code = "";
 
   for (let index = 0; index < 5; index += 1) {
-    code += ROOM_CODE_ALPHABET[
-      crypto.randomInt(0, ROOM_CODE_ALPHABET.length)
-    ];
+    code += ROOM_CODE_ALPHABET[crypto.randomInt(0, ROOM_CODE_ALPHABET.length)];
   }
 
   return code;
@@ -65,7 +63,7 @@ function toPlayerRecord(collection) {
     return Object.fromEntries(
       collection
         .filter((player) => player && typeof player.id === "string")
-        .map((player) => [player.id, player])
+        .map((player) => [player.id, player]),
     );
   }
 
@@ -81,7 +79,7 @@ function toAnswerRecord(collection) {
     return Object.fromEntries(
       collection
         .filter((entry) => entry && typeof entry.playerId === "string")
-        .map((entry) => [entry.playerId, entry])
+        .map((entry) => [entry.playerId, entry]),
     );
   }
 
@@ -116,7 +114,7 @@ function publicState(room) {
       .sort(
         (a, b) =>
           (Number(a.joinedAt) || 0) - (Number(b.joinedAt) || 0) ||
-          a.id.localeCompare(b.id)
+          a.id.localeCompare(b.id),
       )
       .map((player) => ({
         id: player.id,
@@ -126,7 +124,10 @@ function publicState(room) {
         connected: Boolean(player.connected),
         isHost: player.id === room.hostPlayerId,
         answered: Object.prototype.hasOwnProperty.call(answers, player.id),
-        answeredCorrect: Object.prototype.hasOwnProperty.call(correct, player.id),
+        answeredCorrect: Object.prototype.hasOwnProperty.call(
+          correct,
+          player.id,
+        ),
         score: Number(player.score) || 0,
         streak: Number(player.streak) || 0,
         timeoutStreak: Number(player.timeoutStreak) || 0,
@@ -144,10 +145,7 @@ function publicState(room) {
       ? room.questionDeck.length
       : 0,
     questionsRemaining: Array.isArray(room.questionDeck)
-      ? Math.max(
-          0,
-          room.questionDeck.length - (Number(room.deckIndex) || 0)
-        )
+      ? Math.max(0, room.questionDeck.length - (Number(room.deckIndex) || 0))
       : 0,
   };
 }
@@ -166,7 +164,7 @@ function findPlayerByToken(room, playerToken) {
       (player) =>
         player &&
         typeof player.token === "string" &&
-        player.token === playerToken
+        player.token === playerToken,
     ) || null
   );
 }
@@ -266,7 +264,7 @@ async function createRoom({ socket, io, gameService, payload }) {
       if (
         attempt < 9 &&
         /already exists|room exists|duplicate|conflict/i.test(
-          String(error && error.message)
+          String(error && error.message),
         )
       ) {
         room = null;
@@ -319,7 +317,7 @@ async function joinRoom({ socket, io, gameService, payload }) {
 
     if (player) {
       const previousSocketId = player.socketId || null;
-        
+
       player.name = name || player.name;
       player.connected = true;
       player.socketId = socket.id;
@@ -391,10 +389,7 @@ async function joinRoom({ socket, io, gameService, payload }) {
   });
 
   if (!result || result.error) {
-    emitError(
-      socket,
-      (result && result.error) || "Unable to join this room."
-    );
+    emitError(socket, (result && result.error) || "Unable to join this room.");
     return;
   }
 
@@ -402,10 +397,7 @@ async function joinRoom({ socket, io, gameService, payload }) {
   socket.data.playerId = result.playerId;
   await socket.join(result.roomCode);
 
-  if (
-    result.previousSocketId &&
-    result.previousSocketId !== socket.id
-  ) {
+  if (result.previousSocketId && result.previousSocketId !== socket.id) {
     const previousSocket = io.sockets.sockets.get(result.previousSocketId);
 
     if (previousSocket) {
@@ -481,7 +473,7 @@ async function markPlayerDisconnected({
   } catch (error) {
     console.error(
       `[connectionHandlers] Failed to mark player disconnected in ${roomCode}:`,
-      error
+      error,
     );
   } finally {
     socket.data.roomCode = null;
