@@ -63,7 +63,7 @@
     .app {
       width: min(1240px, 100%);
       margin: auto;
-      padding: 22px 18px 40px
+      padding: 48px 18px 56px;
     }
 
     .topbar,
@@ -86,7 +86,9 @@
     }
 
     .topbar {
-      margin-bottom: 18px
+      margin-bottom: 20px;
+      padding-top: 12px;
+      min-height: 64px
     }
 
     .brand {
@@ -829,8 +831,9 @@
     .footer {
       text-align: center;
       color: #697a98;
-      font-size: 11px;
-      margin: 27px 0 0
+      font-size: 12px;
+      margin: 32px 0 0;
+      padding: 20px 0 24px;
     }
 
     .toast {
@@ -1590,17 +1593,18 @@
         <section class="panel rules">
           <h3 class="card-title">🏁 How to play</h3>
           <ul class="rule-list">
-            <li><span class="rule-icon">1</span><span><strong>Race together.</strong> Share your room code with 1–7
-                friends. No account needed.</span></li>
-            <li><span class="rule-icon">2</span><span><strong>Answer fast.</strong> Correct answers earn 1 point and
-                move 2 spaces. A 3+ correct streak adds a bonus space.</span></li>
-            <li><span class="rule-icon">3</span><span><strong>Watch your step.</strong> Wrong answers move you back 1
-                space. Two consecutive unanswered rounds trigger a penalty.</span></li>
-            <li><span class="rule-icon">4</span><span><strong>Reach space 30.</strong> Green boosts climb; red slides
-                drop you back. First to the finish wins!</span></li>
+            <li><span class="rule-icon">1</span><span><strong>Race together.</strong> Create a room and share its
+                code with a friend. The first player to reach space 30 wins.</span></li>
+            <li><span class="rule-icon">2</span><span><strong>Think fast.</strong> A correct answer earns 1 point and
+                moves you forward 2 spaces. A streak of 3 or more correct answers adds a bonus space.</span></li>
+            <li><span class="rule-icon">3</span><span><strong>Every answer counts.</strong> A wrong answer costs
+                1 point and moves you back 1 space. Missing 2 consecutive questions triggers a penalty.</span></li>
+            <li><span class="rule-icon">4</span><span><strong>Follow the arrows.</strong> Green boosts and red slides
+                activate automatically when you land on them. Chain reactions continue until you reach a normal
+                tile.</span></li>
           </ul>
-          <div class="rules-note">⏱ Each question lasts 20 seconds. Questions and board effects are randomized for every
-            match, with no repeated questions within a match.</div>
+          <div class="rules-note">⚡ Every match randomizes 4 green boosts and 4 red slides, including their arrow
+            directions. Questions do not repeat within a match. Special-tile chains resolve in the same turn.</div>
         </section>
       </div>
     </main>
@@ -1694,7 +1698,7 @@
       <h2 id="winnerTitle">We have a winner!</h2>
       <p id="winnerText">A brilliant race.</p>
       <button id="playAgainBtn" class="button button-primary button-block">Race again →</button>
-      <button id="winnerLobbyBtn" class="button button-secondary button-block">Close results</button>
+      <button id="winnerLobbyBtn" class="button button-secondary button-block">Leave room</button>
     </div>
   </div>
 
@@ -1720,6 +1724,7 @@
         timerInterval: null,
         toastTimer: null,
         attemptedRoundIds: new Set(),
+        animatedRoundIds: new Set(),
         feedbackByRound: new Map(),
         selectedChoiceByRound: new Map(),
         winnerShownFor: null,
@@ -2032,7 +2037,7 @@
             if (tile) {
               const glow = effectType === 'boost' ? 'effect-flash-boost' : 'effect-flash-slide';
               tile.classList.add(glow);
-              setTimeout(() => tile.classList.remove(glow), 5000);
+              setTimeout(() => tile.classList.remove(glow), 900);
             }
           }
 
@@ -2043,7 +2048,7 @@
           }
           const duration = Number.isFinite(step.durationMs)
             ? step.durationMs
-            : (isVector ? 5000 : 3000);
+            : (isVector ? 700 : 420);
           floater.style.transition = `transform ${duration}ms cubic-bezier(.22,.61,.36,1)`;
           floater.style.transform = `translate(${target.x}px,${target.y}px) translate(-50%,-50%)`;
           await wait(duration);
@@ -2128,23 +2133,28 @@
         }
       }
 
+
+
       function animateRoundMovement(payload) {
         if (
           !payload ||
           payload.roomCode !== state.roomCode ||
-          !Array.isArray(payload.moves) ||
-          payload.roundId == null
+          !Array.isArray(payload.moves)
         ) {
           return;
         }
 
-        if (state.room) {
-          state.room.players.forEach(player => {
-            if (!state.visualPositions.has(player.id)) {
-              state.visualPositions.set(player.id, player.position);
-            }
-          });
+        // Prevent duplicate movement events for the same round.
+        const movementKey = `${payload.roomCode}:${payload.roundId}`;
+
+        if (state.animatedRoundIds.has(movementKey)) {
+          console.warn(
+            `[Movement] Ignored duplicate movement event: ${movementKey}`
+          );
+          return;
         }
+
+        state.animatedRoundIds.add(movementKey);
 
         payload.moves.forEach(plan => {
           state.visualPositions.set(plan.playerId, plan.fromPosition);
@@ -2405,9 +2415,25 @@
         } else if (room.status === 'playing') {
           banner.innerHTML = `<strong>Race in progress.</strong> Question ${room.roundNumber || room.roundId} of ${room.totalQuestions || 30}. ${room.questionsRemaining} remaining. Correct answers earn 1 point and move 2 spaces; streaks of 3+ add a bonus space.`;
         } else {
+          const requests = room.rematchRequests || [];
+          const acceptances = room.rematchAcceptances || [];
+
+          const requestNames = requests.map((player) => player.name);
+          const acceptanceNames = acceptances.map((player) => player.name);
+
+          const rematchMessage = requestNames.length
+            ? `${requestNames.map(escapeHtml).join(", ")} requested a rematch.`
+            + (acceptanceNames.length
+              ? ` Accepted: ${acceptanceNames.map(escapeHtml).join(", ")}.`
+              : " Other players can accept or leave the room.")
+            : "Request a rematch if you want to play again.";
+
           banner.innerHTML = room.winner
-            ? `<strong>${escapeHtml(room.winner.name)} wins!</strong> ${room.winner.byQuestions ? 'Questions complete — highest position wins.' : 'The host can start a rematch.'}`
-            : 'Race complete.';
+            ? `<strong>${escapeHtml(room.winner.name)} wins!</strong> ${room.winner.byQuestions
+              ? "Questions complete — highest position wins."
+              : "Race complete."
+            } ${rematchMessage}`
+            : `Race complete. ${rematchMessage}`;
         }
 
         if (room.status === 'finished' && room.winner) {
@@ -2416,7 +2442,43 @@
             ? 'Brilliant race! You reached the finish first.'
             : 'Great race! ' + room.winner.name + ' takes the win. Ready for a rematch?';
 
-          $('playAgainBtn').classList.toggle('hidden', !isHost);
+          // Everyone can see the rematch action; the server still authorizes the host to start it.
+          const requests = room.rematchRequests || [];
+          const acceptances = room.rematchAcceptances || [];
+
+          const someoneRequested = requests.some(
+            (player) => player.playerId !== state.playerId,
+          );
+
+          const iRequested = requests.some(
+            (player) => player.playerId === state.playerId,
+          );
+
+          const iAccepted = acceptances.some(
+            (player) => player.playerId === state.playerId,
+          );
+
+          const someoneAccepted = acceptances.some(
+            (player) => player.playerId !== state.playerId,
+          );
+
+          let rematchLabel = "Request a rematch →";
+
+          if (isHost && requests.length && (iAccepted || someoneAccepted)) {
+            rematchLabel = "Start rematch →";
+          } else if (someoneRequested && !iAccepted) {
+            rematchLabel = "Accept rematch →";
+          } else if (iRequested || iAccepted) {
+            rematchLabel = iAccepted
+              ? "Rematch accepted ✓"
+              : "Rematch requested ✓";
+          }
+
+          $('playAgainBtn').classList.remove('hidden');
+          $('playAgainBtn').textContent = rematchLabel;
+          $('playAgainBtn').disabled =
+            rematchLabel === "Rematch requested ✓" ||
+            rematchLabel === "Rematch accepted ✓";
 
           const winnerKey = room.winner.playerId + ':' + room.roundId;
           if (state.winnerShownFor !== winnerKey) {
@@ -2503,9 +2565,16 @@
         $('board').querySelectorAll('.token-floater').forEach(token => token.remove());
 
         clearSession();
-        $('roomCodeInput').value = '';
-        showLobby();
-        toast('You left the room.');
+
+const url = new URL(window.location.href);
+url.searchParams.delete('room');
+history.replaceState({}, '', url.pathname + url.search + url.hash);
+
+$('roomCodeInput').value = '';
+hideWinner();
+showLobby();
+toast('You left the room.');
+
       }
 
       async function copyText(text, success) {
@@ -2625,10 +2694,57 @@
       $('leaveRoomBtn').addEventListener('click', leaveRoom);
       $('playAgainBtn').addEventListener('click', () => {
         unlockRetroAudio();
-        hideWinner();
-        socket.emit('game:start');
+
+        const room = state.room;
+        if (!room || room.status !== 'finished') return;
+
+        const requests = room.rematchRequests || [];
+        const acceptances = room.rematchAcceptances || [];
+
+        const isHost = state.playerId === room.hostPlayerId;
+
+        const someoneRequested = requests.some(
+          (player) => player.playerId !== state.playerId,
+        );
+
+        const someoneAccepted = acceptances.some(
+          (player) => player.playerId !== state.playerId,
+        );
+
+        const iAccepted = acceptances.some(
+          (player) => player.playerId === state.playerId,
+        );
+
+        if (
+          isHost &&
+          requests.length > 0 &&
+          (iAccepted || someoneAccepted)
+        ) {
+          hideWinner();
+          socket.emit('game:start');
+          return;
+        }
+
+        if (someoneRequested && !iAccepted) {
+          socket.emit('rematch:accept');
+          toast('You accepted the rematch request.');
+          return;
+        }
+
+        if (
+          requests.some((player) => player.playerId === state.playerId) ||
+          iAccepted
+        ) {
+          toast('Your rematch response has already been recorded.');
+          return;
+        }
+
+        socket.emit('rematch:request');
+        toast('Rematch requested. Other players can accept.');
       });
-      $('winnerLobbyBtn').addEventListener('click', hideWinner);
+      $('winnerLobbyBtn').addEventListener('click', () => {
+  leaveRoom();
+});
       window.addEventListener('resize', () => {
         if (!$('winnerOverlay').classList.contains('hidden')) startConfetti();
       });
@@ -2685,8 +2801,17 @@
       });
 
 
+
       socket.on('match:initialized', payload => {
         if (!state.roomCode || payload.roomCode !== state.roomCode) return;
+
+        // Reset movement state for the new match.
+        state.animatedRoundIds.clear();
+        state.movementQueue = [];
+        state.movementGeneration++;
+
+        state.movementQueueRunning = false;
+        state.movementAnimating = false;
 
         if (state.room) {
           state.room.boardEffects = payload.boardEffects;
@@ -2696,6 +2821,8 @@
 
         toast('New match! Four boosts and four slides are randomized.');
       });
+
+
       socket.on('room:state', room => {
         if (!state.roomCode || room.roomCode !== state.roomCode) return;
 
@@ -2708,6 +2835,13 @@
           state.attemptedRoundIds.delete(oldRound);
           state.selectedChoiceByRound.clear();
         }
+
+        socket.on('player:left', payload => {
+  if (!payload) return;
+
+  const name = payload.playerName || 'A player';
+  toast(`${name} left the room.`);
+});
 
         renderState(room);
 

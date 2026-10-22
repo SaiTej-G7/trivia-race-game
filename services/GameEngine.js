@@ -3,7 +3,7 @@
 const crypto = require("crypto");
 const MAX_PLAYERS = 6;
 const QUESTION_TIME_MS = 20_000;
-const BETWEEN_ROUNDS_MS = 5_000;
+const BETWEEN_ROUNDS_MS = 1_000;
 const COUNTDOWN_MS = 3_000;
 const MATCH_QUESTION_COUNT = 30;
 
@@ -1353,22 +1353,73 @@ function applyCorrectAnswer(room, player, bonusSpace = false) {
   };
 }
 
-function makePenaltyPlan(player, reason, message) {
+function makePenaltyPlan(player, reason, message, room = null) {
   const fromPosition = player.position;
-  const finalPosition = Math.max(1, fromPosition - 1);
-  const steps =
-    fromPosition > 1
-      ? [
-          {
-            type: "penalty",
-            from: fromPosition,
-            to: finalPosition,
-            durationMs: 360,
-          },
-        ]
-      : [];
+  const steps = [];
+  let current = Math.max(1, fromPosition - 1);
 
-  player.position = finalPosition;
+  if (fromPosition > 1) {
+    steps.push({
+      type: "penalty",
+      from: fromPosition,
+      to: current,
+      durationMs: 360,
+    });
+  }
+
+  let firstEffect = null;
+  const visited = new Set();
+
+  // After the penalty, follow every special tile landed on.
+  // The board effects are randomized once per match.
+  while (current < 30 && room?.boardEffects?.[current]) {
+    if (visited.has(current)) {
+      throw new Error(`Board effect cycle encountered at space ${current}.`);
+    }
+
+    visited.add(current);
+
+    const rule = room.boardEffects[current];
+    const destination = Number(rule.destination);
+
+    if (
+      !Number.isInteger(destination) ||
+      destination < 1 ||
+      destination > 30 ||
+      destination === current
+    ) {
+      throw new Error(`Invalid board effect at space ${current}.`);
+    }
+
+    if (!firstEffect) {
+      firstEffect = {
+        type: rule.type,
+        from: current,
+        to: destination,
+        label: rule.label,
+        arrow: rule.arrow,
+      };
+    }
+
+    steps.push({
+      type: "vector",
+      effectType: rule.type,
+      arrow: rule.arrow,
+      from: current,
+      to: destination,
+      triggerAt: current,
+      durationMs: 560,
+      label: rule.label,
+    });
+
+    current = destination;
+  }
+
+  player.position = Math.max(1, Math.min(30, current));
+
+  if (room) {
+    player.positionReachedAt = nextResolutionTimestamp(room);
+  }
 
   return {
     playerId: player.id,
@@ -1376,7 +1427,8 @@ function makePenaltyPlan(player, reason, message) {
     color: player.color,
     fromPosition,
     steps,
-    finalPosition,
+    finalPosition: player.position,
+    effect: firstEffect,
     toast: {
       type: reason === "wrong" ? "penalty" : "timeout",
       message,
@@ -1581,8 +1633,9 @@ function resolveRound(room, options = {}) {
       moves.push(
         makePenaltyPlan(
           player,
-          "wrong",
-          `${player.name} chose the wrong answer! (-1 Point, -1 Space)`,
+          "timeout",
+          `${player.name} missed 2+ questions in a row! (-1 Point, -1 Space)`,
+          room,
         ),
       );
     }
@@ -1600,8 +1653,9 @@ function resolveRound(room, options = {}) {
       moves.push(
         makePenaltyPlan(
           player,
-          "timeout",
-          `${player.name} missed 2+ questions in a row! (-1 Point, -1 Space)`,
+          "wrong",
+          `${player.name} chose the wrong answer! (-1 Point, -1 Space)`,
+          room,
         ),
       );
     }

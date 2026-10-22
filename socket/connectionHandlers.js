@@ -147,6 +147,19 @@ function publicState(room) {
     questionsRemaining: Array.isArray(room.questionDeck)
       ? Math.max(0, room.questionDeck.length - (Number(room.deckIndex) || 0))
       : 0,
+    rematchRequests: Object.keys(room.rematchRequests || {})
+      .filter((id) => room.rematchRequests[id])
+      .map((id) => ({
+        playerId: id,
+        name: players.find((player) => player.id === id)?.name || "Player",
+      })),
+
+    rematchAcceptances: Object.keys(room.rematchAcceptances || {})
+      .filter((id) => room.rematchAcceptances[id])
+      .map((id) => ({
+        playerId: id,
+        name: players.find((player) => player.id === id)?.name || "Player",
+      })),
   };
 }
 
@@ -450,6 +463,8 @@ async function markPlayerDisconnected({
         };
       }
 
+      const playerName = player.name;
+
       player.connected = false;
       player.socketId = null;
 
@@ -458,6 +473,8 @@ async function markPlayerDisconnected({
         value: {
           changed: true,
           roomCode: room.code,
+          playerId,
+          playerName,
           state: publicState(room),
         },
       };
@@ -465,6 +482,14 @@ async function markPlayerDisconnected({
 
     if (result && result.changed) {
       io.to(roomCode).emit("room:state", result.state);
+
+      // Notify the other players when someone explicitly leaves.
+      if (explicitLeave) {
+        socket.to(roomCode).emit("player:left", {
+          playerId: result.playerId,
+          playerName: result.playerName || "A player",
+        });
+      }
     }
 
     if (explicitLeave) {

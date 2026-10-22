@@ -101,7 +101,11 @@ function connectedPlayers(room) {
 function emitState(io, roomCode, state) {
   io.to(roomCode).emit("room:state", state);
 }
-
+function waitBetweenRounds() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, BETWEEN_ROUNDS_MS);
+  });
+}
 function nextQuestion(room, now = Date.now()) {
   if (room.status !== "playing" || room.winner) {
     return { started: false, reason: "match_not_active" };
@@ -265,6 +269,8 @@ async function startGame({ io, socket, gameService }) {
     room.roundAnimationAcks = {};
     room.roundMovementPending = false;
     room.roundResolved = false;
+    room.rematchRequests = {};
+    room.rematchAcceptances = {};
 
     for (const currentPlayer of toArray(room.players)) {
       currentPlayer.position = 1;
@@ -624,6 +630,8 @@ async function animationComplete({ io, socket, gameService, payload }) {
       };
     }
 
+    await waitBetweenRounds();
+
     const next = nextQuestion(room, Date.now());
 
     if (!next.started) {
@@ -661,6 +669,88 @@ async function animationComplete({ io, socket, gameService, payload }) {
   }
 }
 
+async function requestRematch({ io, socket, gameService }) {
+  const roomCode = socket.data && socket.data.roomCode;
+  const playerId = socket.data && socket.data.playerId;
+
+  if (!roomCode || !playerId) return;
+
+  const result = await gameService.withRoomLock(roomCode, async (room) => {
+    const player = getCurrentPlayer(room, socket);
+
+    if (!player || room.status !== "finished") {
+      return {
+        save: false,
+        value: { error: "Rematches are available after a match finishes." },
+      };
+    }
+
+    room.rematchRequests = toRecord(room.rematchRequests);
+    room.rematchAcceptances = toRecord(room.rematchAcceptances);
+
+    room.rematchRequests[playerId] = true;
+    delete room.rematchAcceptances[playerId];
+
+    return {
+      save: true,
+      value: { state: publicState(room) },
+    };
+  });
+
+  if (!result || result.error) {
+    emitError(socket, result?.error || "Unable to request a rematch.");
+    return;
+  }
+
+  emitState(io, roomCode, result.state);
+}
+
+async function acceptRematch({ io, socket, gameService }) {
+  const roomCode = socket.data && socket.data.roomCode;
+  const playerId = socket.data && socket.data.playerId;
+
+  if (!roomCode || !playerId) return;
+
+  const result = await gameService.withRoomLock(roomCode, async (room) => {
+    const player = getCurrentPlayer(room, socket);
+
+    if (!player || room.status !== "finished") {
+      return {
+        save: false,
+        value: { error: "Rematches are available after a match finishes." },
+      };
+    }
+
+    room.rematchRequests = toRecord(room.rematchRequests);
+    room.rematchAcceptances = toRecord(room.rematchAcceptances);
+
+    const someoneElseRequested = Object.keys(room.rematchRequests).some(
+      (id) => id !== playerId && room.rematchRequests[id],
+    );
+
+    if (!someoneElseRequested) {
+      return {
+        save: false,
+        value: { error: "No other player has requested a rematch yet." },
+      };
+    }
+
+    room.rematchAcceptances[playerId] = true;
+
+    return {
+      save: true,
+      value: { state: publicState(room) },
+    };
+  });
+
+  if (!result || result.error) {
+    emitError(socket, result?.error || "Unable to accept the rematch.");
+    return;
+  }
+
+  emitState(io, roomCode, result.state);
+}
+
 function mountGameHandlers({ io, socket, gameService }) {
   if (!io || !socket || !gameService) {
     throw new TypeError("io, socket, and gameService are required.");
@@ -684,6 +774,20 @@ function mountGameHandlers({ io, socket, gameService }) {
     animationComplete({ io, socket, gameService, payload }).catch((error) => {
       console.error("[gameHandlers] round:animation-complete failed:", error);
       emitError(socket, "Unable to complete the round animation.");
+    });
+  });
+
+  socket.on("rematch:request", () => {
+    requestRematch({ io, socket, gameService }).catch((error) => {
+      console.error("[gameHandlers] rematch:request failed:", error);
+      emitError(socket, "Unable to request a rematch right now.");
+    });
+  });
+
+  socket.on("rematch:accept", () => {
+    acceptRematch({ io, socket, gameService }).catch((error) => {
+      console.error("[gameHandlers] rematch:accept failed:", error);
+      emitError(socket, "Unable to accept the rematch right now.");
     });
   });
 }
