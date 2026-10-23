@@ -910,6 +910,30 @@
       box-shadow: 0 20px 100px #54e6a533;
       animation: victoryPop .55s cubic-bezier(.2, 1.5, .4, 1);
     }
+    
+.winner-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.winner-actions .button {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+@media (max-width: 420px) {
+  .winner-actions {
+    gap: 8px;
+  }
+
+  .winner-actions .button {
+    padding: 11px 8px;
+    font-size: 12px;
+  }
+}
 
     .trophy {
       font-size: clamp(60px, 10vw, 100px);
@@ -1697,8 +1721,20 @@
       <div class="eyebrow">RACE COMPLETE</div>
       <h2 id="winnerTitle">We have a winner!</h2>
       <p id="winnerText">A brilliant race.</p>
-      <button id="playAgainBtn" class="button button-primary button-block">Race again →</button>
-      <button id="winnerLobbyBtn" class="button button-secondary button-block">Leave room</button>
+        
+<button id="playAgainBtn" class="button button-primary button-block">
+  Race again →
+</button>
+
+<div class="winner-actions">
+  <button id="winnerCloseBtn" class="button button-secondary">
+    Close results
+  </button>
+  <button id="winnerLeaveBtn" class="button button-secondary">
+    Leave room
+  </button>
+</div>
+
     </div>
   </div>
 
@@ -2089,13 +2125,15 @@
             }
 
             // An empty moves array is valid: the round still needs an acknowledgement.
-            for (const plan of payload.moves) {
-              await animatePlayerPlan(plan, generation);
+            await Promise.all(
+              payload.moves.map(plan =>
+                animatePlayerPlan(plan, generation)
+              )
+            );
 
-              if (generation !== state.movementGeneration) break;
+            if (generation !== state.movementGeneration) break;
 
-              if (state.room) renderBoard(state.room);
-            }
+            if (state.room) renderBoard(state.room);
 
             if (generation !== state.movementGeneration) break;
 
@@ -2566,14 +2604,14 @@
 
         clearSession();
 
-const url = new URL(window.location.href);
-url.searchParams.delete('room');
-history.replaceState({}, '', url.pathname + url.search + url.hash);
+        const url = new URL(window.location.href);
+        url.searchParams.delete('room');
+        history.replaceState({}, '', url.pathname + url.search + url.hash);
 
-$('roomCodeInput').value = '';
-hideWinner();
-showLobby();
-toast('You left the room.');
+        $('roomCodeInput').value = '';
+        hideWinner();
+        showLobby();
+        toast('You left the room.');
 
       }
 
@@ -2604,11 +2642,13 @@ toast('You left the room.');
         startConfetti();
       }
 
-      function hideWinner() {
-        $('winnerOverlay').classList.add('hidden');
-        $('winnerOverlay').classList.remove('celebrate');
-        stopConfetti();
-      }
+      
+function hideWinner() {
+  $("winnerOverlay").classList.add("hidden");
+  $("winnerOverlay").classList.remove("celebrate");
+  stopConfetti();
+}
+
 
       function startConfetti() {
         const canvas = $('confettiCanvas');
@@ -2742,36 +2782,34 @@ toast('You left the room.');
         socket.emit('rematch:request');
         toast('Rematch requested. Other players can accept.');
       });
-      $('winnerLobbyBtn').addEventListener('click', () => {
+     
+      
+$("winnerCloseBtn").addEventListener("click", () => {
+  hideWinner();
+});
+
+$("winnerLeaveBtn").addEventListener("click", () => {
   leaveRoom();
 });
+
+
       window.addEventListener('resize', () => {
         if (!$('winnerOverlay').classList.contains('hidden')) startConfetti();
       });
 
       socket.on('connect', () => {
-        setConnection(true);
+  setConnection(true);
 
-        if (state.roomCode && state.playerToken) {
-          socket.emit('room:join', {
-            roomCode: state.roomCode,
-            name: state.playerName || 'Player',
-            playerToken: state.playerToken
-          });
-        } else if (savedSession && !restoreAttempted) {
-          restoreAttempted = true;
-          state.playerName = savedSession.playerName || '';
-          state.playerToken = savedSession.playerToken;
-          state.roomCode = savedSession.roomCode;
-          $('playerName').value = state.playerName;
-
-          socket.emit('room:join', {
-            roomCode: savedSession.roomCode,
-            name: state.playerName,
-            playerToken: savedSession.playerToken
-          });
-        }
-      });
+  // Reconnect only if this page already has an active room session.
+  // Do not automatically restore a room from localStorage after a page reload.
+  if (state.roomCode && state.playerToken) {
+    socket.emit('room:join', {
+      roomCode: state.roomCode,
+      name: state.playerName || 'Player',
+      playerToken: state.playerToken
+    });
+  }
+});
 
       socket.on('disconnect', () => {
         setConnection(false);
@@ -2837,11 +2875,11 @@ toast('You left the room.');
         }
 
         socket.on('player:left', payload => {
-  if (!payload) return;
+          if (!payload) return;
 
-  const name = payload.playerName || 'A player';
-  toast(`${name} left the room.`);
-});
+          const name = payload.playerName || 'A player';
+          toast(`${name} left the room.`);
+        });
 
         renderState(room);
 
@@ -2872,9 +2910,18 @@ toast('You left the room.');
         toast(payload && payload.message ? payload.message : 'Something went wrong.');
       });
 
-      const queryRoom = new URLSearchParams(location.search).get('room');
-      if (queryRoom) $('roomCodeInput').value = queryRoom.toUpperCase();
-      if (savedSession && savedSession.playerName) $('playerName').value = savedSession.playerName;
+      const url = new URL(window.location.href);
+const queryRoom = url.searchParams.get('room');
+
+if (queryRoom) {
+  $('roomCodeInput').value = queryRoom.toUpperCase();
+  url.searchParams.delete('room');
+  history.replaceState({}, '', url.pathname + url.search + url.hash);
+}
+
+if (savedSession && savedSession.playerName) {
+  $('playerName').value = savedSession.playerName;
+}
 
       setConnection(socket.connected);
     })();

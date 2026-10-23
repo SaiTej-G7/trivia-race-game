@@ -1497,9 +1497,11 @@ function resolveRound(room, options = {}) {
 
   const asArray = (collection) => {
     if (Array.isArray(collection)) return collection;
+
     if (collection && typeof collection === "object") {
       return Object.values(collection);
     }
+
     return [];
   };
 
@@ -1507,11 +1509,13 @@ function resolveRound(room, options = {}) {
     if (collection instanceof Map) {
       return Object.fromEntries(collection.entries());
     }
+
     if (Array.isArray(collection)) {
       return Object.fromEntries(
         collection.map((item) => [String(item.playerId ?? item.id), item]),
       );
     }
+
     return collection && typeof collection === "object" ? collection : {};
   };
 
@@ -1531,11 +1535,12 @@ function resolveRound(room, options = {}) {
     throw new Error("Cannot resolve a round without a valid current question.");
   }
 
-  room.roundResolved = true;
-  room.deadline = null;
-
   const roundId = room.roundId;
   const correctIndex = currentQuestion.correctIndex;
+
+  // nextQuestion() increments deckIndex when it assigns a question.
+  const isFirstQuestion = Number(room.deckIndex) === 1;
+
   const submitted = [];
 
   for (const player of players) {
@@ -1560,6 +1565,10 @@ function resolveRound(room, options = {}) {
       a.player.id.localeCompare(b.player.id),
   );
 
+  // Mark the round resolved before applying scoring or movement.
+  room.roundResolved = true;
+  room.deadline = null;
+
   const correctPlayers = [];
   const moves = [];
   const answeredIds = new Set(submitted.map(({ player }) => player.id));
@@ -1571,6 +1580,7 @@ function resolveRound(room, options = {}) {
     message: "",
   };
 
+  // Process submitted answers.
   for (const { player, choiceIndex } of submitted) {
     if (choiceIndex === correctIndex) {
       player.streak = (Number(player.streak) || 0) + 1;
@@ -1583,6 +1593,7 @@ function resolveRound(room, options = {}) {
       });
 
       const bonusSpace = player.streak >= 3 && player.streak % 3 === 0;
+
       const movement = applyCorrectAnswer(room, player, bonusSpace);
 
       if (bonusSpace) {
@@ -1594,13 +1605,18 @@ function resolveRound(room, options = {}) {
 
       moves.push(movement.plan);
 
+      // First player to reach space 30 wins immediately.
       if (player.position >= 30) {
         room.lastRoundResult.message = `${player.name} reached space 30 and won!`;
+
         room.lastRoundResult.winnerPlayerId = player.id;
+        room.lastRoundResult.correctPlayers = correctPlayers;
+
         room.status = "finished";
         room.deadline = null;
         room.countdownEndsAt = null;
         room.currentQuestion = null;
+
         room.winner = {
           playerId: player.id,
           name: player.name,
@@ -1610,8 +1626,6 @@ function resolveRound(room, options = {}) {
           score: player.score,
           positionReachedAt: player.positionReachedAt,
         };
-
-        room.lastRoundResult.correctPlayers = correctPlayers;
 
         return {
           resolved: true,
@@ -1626,28 +1640,13 @@ function resolveRound(room, options = {}) {
         };
       }
     } else {
+      // A submitted but incorrect answer resets both streaks.
       player.streak = 0;
       player.timeoutStreak = 0;
-      player.score = (Number(player.score) || 0) - 1;
 
-      moves.push(
-        makePenaltyPlan(
-          player,
-          "timeout",
-          `${player.name} missed 2+ questions in a row! (-1 Point, -1 Space)`,
-          room,
-        ),
-      );
-    }
-  }
+      // No score or movement penalty on question 1.
+      if (isFirstQuestion) continue;
 
-  for (const player of players) {
-    if (answeredIds.has(player.id)) continue;
-
-    player.streak = 0;
-    player.timeoutStreak = (Number(player.timeoutStreak) || 0) + 1;
-
-    if (player.timeoutStreak >= 2) {
       player.score = (Number(player.score) || 0) - 1;
 
       moves.push(
@@ -1661,11 +1660,43 @@ function resolveRound(room, options = {}) {
     }
   }
 
+  // Process players who did not submit an answer.
+  for (const player of players) {
+    if (answeredIds.has(player.id)) continue;
+
+    player.streak = 0;
+
+    // The first unanswered question does not start a penalty streak.
+    if (isFirstQuestion) {
+      player.timeoutStreak = 0;
+      continue;
+    }
+
+    player.timeoutStreak = (Number(player.timeoutStreak) || 0) + 1;
+
+    // Penalize from the second consecutive missed question onward.
+    if (player.timeoutStreak >= 2) {
+      player.score = (Number(player.score) || 0) - 1;
+
+      moves.push(
+        makePenaltyPlan(
+          player,
+          "timeout",
+          `${player.name} missed 2+ questions in a row! (-1 Point, -1 Space)`,
+          room,
+        ),
+      );
+    }
+  }
+
   room.lastRoundResult.correctPlayers = correctPlayers;
   room.lastRoundResult.message = correctPlayers.length
-    ? `${correctPlayers.length} player${correctPlayers.length === 1 ? "" : "s"} got it right this round!`
+    ? `${correctPlayers.length} player${
+        correctPlayers.length === 1 ? "" : "s"
+      } got it right this round!`
     : "Time is up! No correct answers this round.";
 
+  // After all questions, rank players to determine the winner.
   if (room.deckIndex >= MATCH_QUESTION_COUNT) {
     const rankedPlayers = [...players].sort(
       (a, b) =>
@@ -1684,6 +1715,7 @@ function resolveRound(room, options = {}) {
     room.deadline = null;
     room.countdownEndsAt = null;
     room.currentQuestion = null;
+
     room.winner = winner
       ? {
           playerId: winner.id,
