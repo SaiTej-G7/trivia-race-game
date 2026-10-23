@@ -856,7 +856,7 @@
       z-index: 80;
       max-width: min(520px, calc(100vw - 30px));
       text-align: center;
-      backdrop-filter: blur(12px);
+      backdrop-filter: none;
     }
 
     .toast.show {
@@ -889,12 +889,107 @@
       position: fixed;
       inset: 0;
       background: #030711ef;
-      backdrop-filter: blur(10px);
+      backdrop-filter: none;
       display: grid;
       place-items: center;
       padding: 20px;
       z-index: 90;
       overflow: hidden;
+    }
+
+    /* Synchronized multiplayer start countdown */
+    .start-countdown-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 85;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      overflow: hidden;
+      background: rgba(3, 7, 17, 0.88);
+    }
+
+    .countdown-content {
+      width: min(420px, 100%);
+      text-align: center;
+      padding: 32px 20px;
+      border: 1px solid #54e6a577;
+      border-radius: 28px;
+      background: linear-gradient(145deg, #142a36, #10192a);
+      box-shadow: 0 0 70px #54e6a522;
+    }
+
+    .countdown-label {
+      color: var(--mint);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 3px;
+    }
+
+    .countdown-number {
+      color: var(--mint);
+      font-size: clamp(100px, 25vw, 180px);
+      font-weight: 1000;
+      line-height: 1.2;
+      text-shadow: 0 0 35px #54e6a566;
+    }
+
+    .countdown-number.animate {
+      animation: countdownPop 0.35s cubic-bezier(.2, .8, .2, 1);
+    }
+
+    .countdown-message {
+      color: #d7e4f8;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .countdown-number.go {
+      color: var(--yellow);
+      font-size: clamp(72px, 18vw, 120px);
+      text-shadow: 0 0 35px #ffc85766;
+    }
+
+    @keyframes countdownPop {
+      0% {
+        transform: scale(0.45);
+        opacity: 0;
+      }
+
+      65% {
+        transform: scale(1.12);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .countdown-number.animate {
+        animation: none;
+      }
+    }
+
+    @media (max-height: 500px) {
+      .countdown-content {
+        padding: 12px;
+      }
+
+      .countdown-number {
+        font-size: clamp(64px, 18vh, 100px);
+        line-height: 1;
+      }
+
+      .countdown-number.go {
+        font-size: clamp(52px, 15vh, 80px);
+      }
+
+      .countdown-label {
+        letter-spacing: 2px;
+      }
     }
 
     .winner-card {
@@ -910,30 +1005,30 @@
       box-shadow: 0 20px 100px #54e6a533;
       animation: victoryPop .55s cubic-bezier(.2, 1.5, .4, 1);
     }
-    
-.winner-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 12px;
-}
 
-.winner-actions .button {
-  flex: 1;
-  min-width: 0;
-  margin-top: 0;
-}
+    .winner-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 12px;
+    }
 
-@media (max-width: 420px) {
-  .winner-actions {
-    gap: 8px;
-  }
+    .winner-actions .button {
+      flex: 1;
+      min-width: 0;
+      margin-top: 0;
+    }
 
-  .winner-actions .button {
-    padding: 11px 8px;
-    font-size: 12px;
-  }
-}
+    @media (max-width: 420px) {
+      .winner-actions {
+        gap: 8px;
+      }
+
+      .winner-actions .button {
+        padding: 11px 8px;
+        font-size: 12px;
+      }
+    }
 
     .trophy {
       font-size: clamp(60px, 10vw, 100px);
@@ -1713,6 +1808,15 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="startCountdownOverlay" class="start-countdown-overlay hidden" aria-live="assertive" aria-atomic="true">
+    <div class="countdown-content">
+      <div class="countdown-label">GET READY, RACERS!</div>
+      <div id="startCountdownNumber" class="countdown-number">3</div>
+      <div id="startCountdownMessage" class="countdown-message">
+        The race is about to begin!
+      </div>
+    </div>
+  </div>
 
   <div id="winnerOverlay" class="winner-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="winnerTitle">
     <canvas id="confettiCanvas" class="confetti-canvas"></canvas>
@@ -1721,19 +1825,19 @@
       <div class="eyebrow">RACE COMPLETE</div>
       <h2 id="winnerTitle">We have a winner!</h2>
       <p id="winnerText">A brilliant race.</p>
-        
-<button id="playAgainBtn" class="button button-primary button-block">
-  Race again →
-</button>
 
-<div class="winner-actions">
-  <button id="winnerCloseBtn" class="button button-secondary">
-    Close results
-  </button>
-  <button id="winnerLeaveBtn" class="button button-secondary">
-    Leave room
-  </button>
-</div>
+      <button id="playAgainBtn" class="button button-primary button-block">
+        Race again →
+      </button>
+
+      <div class="winner-actions">
+        <button id="winnerCloseBtn" class="button button-secondary">
+          Close results
+        </button>
+        <button id="winnerLeaveBtn" class="button button-secondary">
+          Leave room
+        </button>
+      </div>
 
     </div>
   </div>
@@ -1768,8 +1872,13 @@
         movementAnimating: false,
         movementGeneration: 0,
         movementQueue: [],
-        movementQueueRunning: false
+        movementQueueRunning: false,
+        countdownInterval: null,
+        countdownStage: null,
+        countdownDeadline: null
       };
+
+      let winnerRevealTimeout = null;
 
       // Zero-asset retro audio: lazily create/resume Web Audio only from user gestures.
       class RetroSfxSynth {
@@ -2298,13 +2407,99 @@
           return;
         }
 
-        if (room.status === 'finished') {
-          $('questionCategory').textContent = 'Race complete';
+        if (
+          room.status === 'finished' &&
+          !(room.roundResolved && room.lastRoundResult)
+        ) {
+          // Keep the final question visible after closing the results overlay.
+          // The game is finished, so answers remain disabled and no timer runs.
+          const result = room.lastRoundResult;
+          const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
+          const feedback = state.feedbackByRound.get(room.roundId);
+
+          const correctIndex =
+            result && Number.isInteger(result.correctIndex)
+              ? result.correctIndex
+              : feedback && feedback.correct
+                ? feedback.choiceIndex
+                : null;
+
           $('timerText').textContent = '🏆 Finished';
           $('timerBar').style.width = '100%';
-          $('questionText').textContent = 'What a race!';
-          answers.innerHTML = '';
-          setQuestionStatus(room.winner ? `${room.winner.name} won Trivia Race!` : 'Race complete.');
+
+          if (question && Array.isArray(question.choices)) {
+            $('questionCategory').textContent =
+              `${question.category || 'Trivia'} · Final question`;
+
+            $('questionText').textContent = question.text;
+
+            answers.innerHTML = question.choices.map((choice, i) => {
+              const isSelected =
+                selectedChoice === i ||
+                (feedback && feedback.choiceIndex === i);
+
+              const isCorrect = correctIndex === i;
+              const isWrongSelection = isSelected && !isCorrect;
+
+              let classes = 'answer-btn';
+
+              if (isSelected) classes += ' selected';
+              if (isCorrect) classes += ' correct';
+              if (isWrongSelection) classes += ' wrong';
+
+              return `
+        <button class="${classes}" disabled>
+          <span class="answer-letter">
+            ${String.fromCharCode(65 + i)}
+          </span>
+
+          <span>${escapeHtml(choice)}</span>
+
+          ${isSelected
+                  ? `<span style="margin-left:auto">
+                  ${isCorrect ? '✓' : '×'}
+                </span>`
+                  : ''
+                }
+
+          ${isCorrect && !isSelected
+                  ? '<span style="margin-left:auto;color:var(--mint)">Correct answer ✓</span>'
+                  : ''
+                }
+        </button>
+      `;
+            }).join('');
+
+            const correctNames =
+              (result && result.correctPlayers || [])
+                .map(player => player.name);
+
+            const resultMessage =
+              result && result.message
+                ? result.message
+                : room.winner
+                  ? `${room.winner.name} won Trivia Race!`
+                  : 'Race complete.';
+
+            setQuestionStatus(
+              resultMessage +
+              (correctNames.length
+                ? ' Correct: ' + correctNames.join(', ') + '.'
+                : ''),
+              correctNames.length ? 'good' : ''
+            );
+          } else {
+            $('questionCategory').textContent = 'Race complete';
+            $('questionText').textContent = 'What a race!';
+            answers.innerHTML = '';
+
+            setQuestionStatus(
+              room.winner
+                ? `${room.winner.name} won Trivia Race!`
+                : 'Race complete.'
+            );
+          }
+
           return;
         }
 
@@ -2315,13 +2510,37 @@
           $('timerBar').style.width = '0%';
           $('questionText').textContent = question ? question.text : 'Round complete';
 
+          const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
+
           answers.innerHTML = question
-            ? question.choices.map((choice, i) => `
-        <button class="answer-btn ${i === result.correctIndex ? 'correct' : ''}" disabled>
+            ? question.choices.map((choice, i) => {
+              const isCorrect = i === result.correctIndex;
+              const isSelected = selectedChoice === i;
+
+              let classes = 'answer-btn';
+
+              if (isSelected) classes += ' selected';
+              if (isCorrect) classes += ' correct';
+              if (isSelected && !isCorrect) classes += ' wrong';
+
+              let indicator = '';
+
+              if (isCorrect) {
+                indicator =
+                  '<span style="margin-left:auto;color:var(--mint)">✓ Correct</span>';
+              } else if (isSelected) {
+                indicator =
+                  '<span style="margin-left:auto;color:var(--pink)">✗ Your answer</span>';
+              }
+
+              return `
+        <button class="${classes}" disabled>
           <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
           <span>${escapeHtml(choice)}</span>
-          ${i === result.correctIndex ? '<span style="margin-left:auto;color:var(--mint)">✓</span>' : ''}
-        </button>`).join('')
+          ${indicator}
+        </button>
+      `;
+            }).join('')
             : '';
 
           const names = (result.correctPlayers || []).map(player => player.name);
@@ -2360,15 +2579,15 @@
           }
 
           return `
-    <button class="${cls}" data-choice="${i}" ${attempted ? 'disabled' : ''}>
-      <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
-      <span>${escapeHtml(choice)}</span>
-      ${feedback && feedback.choiceIndex === i
+          <button class="${cls}" data-choice="${i}" ${attempted ? 'disabled' : ''}>
+          <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
+          <span>${escapeHtml(choice)}</span>
+          ${feedback && feedback.choiceIndex === i
               ? (feedback.correct
                 ? '<span style="margin-left:auto">✓</span>'
                 : '<span style="margin-left:auto">×</span>')
               : ''}
-    </button>`;
+          </button>`;
         }).join('');
 
 
@@ -2395,25 +2614,123 @@
         );
       }
 
+      function stopStartCountdown() {
+        if (state.countdownInterval !== null) {
+          clearInterval(state.countdownInterval);
+          state.countdownInterval = null;
+        }
+
+        state.countdownStage = null;
+        state.countdownDeadline = null;
+
+        const overlay = $('startCountdownOverlay');
+
+        if (overlay) {
+          overlay.classList.add('hidden');
+        }
+      }
+
+      function renderStartCountdown(room) {
+        if (room.status !== 'countdown' || !room.countdownEndsAt) {
+          stopStartCountdown();
+          return;
+        }
+
+        const overlay = $('startCountdownOverlay');
+
+        if (!overlay) return;
+
+        overlay.classList.remove('hidden');
+
+        // Reuse the server deadline so all players stay synchronized.
+        if (
+          state.countdownDeadline !== room.countdownEndsAt ||
+          state.countdownInterval === null
+        ) {
+          if (state.countdownInterval !== null) {
+            clearInterval(state.countdownInterval);
+          }
+
+          state.countdownDeadline = room.countdownEndsAt;
+          state.countdownStage = null;
+
+          const updateCountdown = () => {
+            const remaining = Math.max(
+              0,
+              state.countdownDeadline - Date.now()
+            );
+
+            // Divide the existing 3-second startup period into four stages.
+            let stage;
+            let message;
+
+            if (remaining > 2250) {
+              stage = '3';
+              message = 'Get ready!';
+            } else if (remaining > 1500) {
+              stage = '2';
+              message = 'Take your position!';
+            } else if (remaining > 750) {
+              stage = '1';
+              message = 'Get set!';
+            } else {
+              stage = 'GO!';
+              message = 'Race ahead!';
+            }
+
+            if (stage !== state.countdownStage) {
+              state.countdownStage = stage;
+
+              const number = $('startCountdownNumber');
+              number.textContent = stage;
+              number.classList.remove('animate', 'go');
+
+              if (stage === 'GO!') {
+                number.classList.add('go');
+              }
+
+              // Restart the animation for each new countdown stage.
+              void number.offsetWidth;
+              number.classList.add('animate');
+
+              $('startCountdownMessage').textContent = message;
+            }
+
+            if (remaining <= 0) {
+              clearInterval(state.countdownInterval);
+              state.countdownInterval = null;
+            }
+          };
+
+          updateCountdown();
+          state.countdownInterval = setInterval(updateCountdown, 50);
+        }
+      }
+
       function renderState(room) {
         if (!room) return;
 
         const previousStatus = state.room && state.room.status;
         state.room = room;
         state.roomCode = room.roomCode;
+        renderStartCountdown(room);
+
+        if (room.status !== 'finished' && winnerRevealTimeout !== null) {
+          clearTimeout(winnerRevealTimeout);
+          winnerRevealTimeout = null;
+          state.winnerShownFor = null;
+          hideWinner();
+        }
 
         if (!state.movementAnimating) {
           state.visualPositions.clear();
         }
 
-
         const myPlayer = room.players.find(player => player.id === state.playerId);
-
 
         if (room.status === 'playing' && myPlayer && myPlayer.answered) {
           state.attemptedRoundIds.add(room.roundId);
         }
-
 
         $('roomCodeDisplay').textContent = room.roomCode;
         $('phaseLabel').textContent = ({
@@ -2519,10 +2836,28 @@
             rematchLabel === "Rematch accepted ✓";
 
           const winnerKey = room.winner.playerId + ':' + room.roundId;
+
           if (state.winnerShownFor !== winnerKey) {
             state.winnerShownFor = winnerKey;
-            showWinner();
-            retroSfx.victory();
+
+            if (winnerRevealTimeout !== null) {
+              clearTimeout(winnerRevealTimeout);
+            }
+
+            winnerRevealTimeout = setTimeout(() => {
+              winnerRevealTimeout = null;
+
+              // Show results only if this match is still finished.
+              if (
+                state.room &&
+                state.room.status === 'finished' &&
+                state.room.winner &&
+                state.room.winner.playerId + ':' + state.room.roundId === winnerKey
+              ) {
+                showWinner();
+                retroSfx.victory();
+              }
+            }, 700);
           }
         } else if (previousStatus === 'finished' || room.status !== 'finished') {
           hideWinner();
@@ -2642,12 +2977,12 @@
         startConfetti();
       }
 
-      
-function hideWinner() {
-  $("winnerOverlay").classList.add("hidden");
-  $("winnerOverlay").classList.remove("celebrate");
-  stopConfetti();
-}
+
+      function hideWinner() {
+        $("winnerOverlay").classList.add("hidden");
+        $("winnerOverlay").classList.remove("celebrate");
+        stopConfetti();
+      }
 
 
       function startConfetti() {
@@ -2782,15 +3117,15 @@ function hideWinner() {
         socket.emit('rematch:request');
         toast('Rematch requested. Other players can accept.');
       });
-     
-      
-$("winnerCloseBtn").addEventListener("click", () => {
-  hideWinner();
-});
 
-$("winnerLeaveBtn").addEventListener("click", () => {
-  leaveRoom();
-});
+
+      $("winnerCloseBtn").addEventListener("click", () => {
+        hideWinner();
+      });
+
+      $("winnerLeaveBtn").addEventListener("click", () => {
+        leaveRoom();
+      });
 
 
       window.addEventListener('resize', () => {
@@ -2798,18 +3133,18 @@ $("winnerLeaveBtn").addEventListener("click", () => {
       });
 
       socket.on('connect', () => {
-  setConnection(true);
+        setConnection(true);
 
-  // Reconnect only if this page already has an active room session.
-  // Do not automatically restore a room from localStorage after a page reload.
-  if (state.roomCode && state.playerToken) {
-    socket.emit('room:join', {
-      roomCode: state.roomCode,
-      name: state.playerName || 'Player',
-      playerToken: state.playerToken
-    });
-  }
-});
+        // Reconnect only if this page already has an active room session.
+        // Do not automatically restore a room from localStorage after a page reload.
+        if (state.roomCode && state.playerToken) {
+          socket.emit('room:join', {
+            roomCode: state.roomCode,
+            name: state.playerName || 'Player',
+            playerToken: state.playerToken
+          });
+        }
+      });
 
       socket.on('disconnect', () => {
         setConnection(false);
@@ -2860,10 +3195,10 @@ $("winnerLeaveBtn").addEventListener("click", () => {
         toast('New match! Four boosts and four slides are randomized.');
       });
 
-
       socket.on('room:state', room => {
-        if (!state.roomCode || room.roomCode !== state.roomCode) return;
-
+        if (!state.roomCode || room.roomCode !== state.roomCode) {
+          return;
+        }
 
         const oldRound = state.room && state.room.roundId;
 
@@ -2874,15 +3209,14 @@ $("winnerLeaveBtn").addEventListener("click", () => {
           state.selectedChoiceByRound.clear();
         }
 
-        socket.on('player:left', payload => {
-          if (!payload) return;
-
-          const name = payload.playerName || 'A player';
-          toast(`${name} left the room.`);
-        });
-
         renderState(room);
+      });
 
+      socket.on('player:left', payload => {
+        if (!payload) return;
+
+        const name = payload.playerName || 'A player';
+        toast(`${name} left the room.`);
       });
 
       socket.on('round:movement', payload => {
@@ -2911,17 +3245,17 @@ $("winnerLeaveBtn").addEventListener("click", () => {
       });
 
       const url = new URL(window.location.href);
-const queryRoom = url.searchParams.get('room');
+      const queryRoom = url.searchParams.get('room');
 
-if (queryRoom) {
-  $('roomCodeInput').value = queryRoom.toUpperCase();
-  url.searchParams.delete('room');
-  history.replaceState({}, '', url.pathname + url.search + url.hash);
-}
+      if (queryRoom) {
+        $('roomCodeInput').value = queryRoom.toUpperCase();
+        url.searchParams.delete('room');
+        history.replaceState({}, '', url.pathname + url.search + url.hash);
+      }
 
-if (savedSession && savedSession.playerName) {
-  $('playerName').value = savedSession.playerName;
-}
+      if (savedSession && savedSession.playerName) {
+        $('playerName').value = savedSession.playerName;
+      }
 
       setConnection(socket.connected);
     })();
