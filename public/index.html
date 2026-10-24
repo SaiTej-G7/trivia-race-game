@@ -2668,10 +2668,10 @@ function renderStartCountdown(room) {
 
   const overlay = $('startCountdownOverlay');
   const number = $('startCountdownNumber');
-  const messageElement = $('startCountdownMessage');
+  const message = $('startCountdownMessage');
 
-  if (!overlay || !number || !messageElement) {
-    console.error('[countdown] Countdown overlay elements are missing.');
+  if (!overlay || !number || !message) {
+    console.error('[countdown] Required overlay elements are missing.');
     return;
   }
 
@@ -2692,25 +2692,30 @@ function renderStartCountdown(room) {
   state.countdownDeadline = deadline;
   state.countdownStage = null;
 
-  const updateCountdown = () => {
-    // Always calculate from the shared server deadline.
-    const remaining = Math.max(0, deadline - Date.now());
+  const update = () => {
+    const remaining = deadline - Date.now();
+
+    // Do not leave GO! covering the screen after the deadline.
+    if (remaining <= 0) {
+      stopStartCountdown();
+      return;
+    }
 
     let stage;
-    let message;
+    let text;
 
     if (remaining > 2250) {
       stage = '3';
-      message = 'Get ready!';
+      text = 'Get ready!';
     } else if (remaining > 1500) {
       stage = '2';
-      message = 'Take your position!';
+      text = 'Take your position!';
     } else if (remaining > 750) {
       stage = '1';
-      message = 'Get set!';
+      text = 'Get set!';
     } else {
       stage = 'GO!';
-      message = 'Race ahead!';
+      text = 'Race ahead!';
     }
 
     if (stage !== state.countdownStage) {
@@ -2725,18 +2730,12 @@ function renderStartCountdown(room) {
 
       void number.offsetWidth;
       number.classList.add('animate');
-
-      messageElement.textContent = message;
-    }
-
-    if (remaining <= 0) {
-      clearInterval(state.countdownInterval);
-      state.countdownInterval = null;
+      message.textContent = text;
     }
   };
 
-  updateCountdown();
-  state.countdownInterval = setInterval(updateCountdown, 50);
+  update();
+  state.countdownInterval = setInterval(update, 50);
 }
 
 function renderState(room) {
@@ -2747,7 +2746,7 @@ function renderState(room) {
         state.roomCode = room.roomCode;
         renderStartCountdown(room);
         renderQuestion(room);
-        
+
         if (room.status !== 'finished' && winnerRevealTimeout !== null) {
           clearTimeout(winnerRevealTimeout);
           winnerRevealTimeout = null;

@@ -102,11 +102,16 @@ function connectedPlayers(room) {
 function emitState(io, roomCode, state) {
   io.to(roomCode).emit("room:state", state);
 }
+
+// Prevent a missing browser animation acknowledgement from freezing the match.
+const ANIMATION_ACK_TIMEOUT_MS = 3000;
+
 function waitBetweenRounds() {
   return new Promise((resolve) => {
     setTimeout(resolve, BETWEEN_ROUNDS_MS);
   });
 }
+
 function nextQuestion(room, now = Date.now()) {
   if (room.status !== "playing" || room.winner) {
     return { started: false, reason: "match_not_active" };
@@ -233,7 +238,7 @@ async function startGame({ io, socket, gameService }) {
 
     if (QUESTION_BANK.length < MATCH_QUESTION_COUNT) {
       throw new Error(
-        `Question bank must contain at least ${MATCH_QUESTION_COUNT} questions.`
+        `Question bank must contain at least ${MATCH_QUESTION_COUNT} questions.`,
       );
     }
 
@@ -249,7 +254,7 @@ async function startGame({ io, socket, gameService }) {
 
     if (questionDeck.length !== MATCH_QUESTION_COUNT) {
       throw new Error(
-        `Expected exactly ${MATCH_QUESTION_COUNT} questions per match.`
+        `Expected exactly ${MATCH_QUESTION_COUNT} questions per match.`,
       );
     }
 
@@ -298,10 +303,7 @@ async function startGame({ io, socket, gameService }) {
   });
 
   if (!result || result.error) {
-    emitError(
-      socket,
-      (result && result.error) || "Unable to start the game."
-    );
+    emitError(socket, (result && result.error) || "Unable to start the game.");
     return;
   }
 
@@ -316,19 +318,19 @@ async function startGame({ io, socket, gameService }) {
   });
 
   // Recheck the room when the shared countdown expires.
-  setTimeout(() => {
-    startFirstQuestion({
-      io,
-      roomCode: result.roomCode,
-      gameService,
-      expectedCountdownEndsAt: result.countdownEndsAt,
-    }).catch((error) => {
-      console.error(
-        "[gameHandlers] countdown completion failed:",
-        error
-      );
-    });
-  }, Math.max(0, result.countdownEndsAt - Date.now()));
+  setTimeout(
+    () => {
+      startFirstQuestion({
+        io,
+        roomCode: result.roomCode,
+        gameService,
+        expectedCountdownEndsAt: result.countdownEndsAt,
+      }).catch((error) => {
+        console.error("[gameHandlers] countdown completion failed:", error);
+      });
+    },
+    Math.max(0, result.countdownEndsAt - Date.now()),
+  );
 }
 
 async function startFirstQuestion({
@@ -337,61 +339,56 @@ async function startFirstQuestion({
   gameService,
   expectedCountdownEndsAt,
 }) {
-  const result = await gameService.withRoomLock(
-    roomCode,
-    async (room) => {
-      // Ignore stale timers from an earlier match or countdown.
-      if (
-        room.status !== "countdown" ||
-        Number(room.countdownEndsAt) !==
-          Number(expectedCountdownEndsAt)
-      ) {
-        return {
-          save: false,
-          value: null,
-        };
-      }
+  const result = await gameService.withRoomLock(roomCode, async (room) => {
+    // Ignore stale timers from an earlier match or countdown.
+    if (
+      room.status !== "countdown" ||
+      Number(room.countdownEndsAt) !== Number(expectedCountdownEndsAt)
+    ) {
+      return {
+        save: false,
+        value: null,
+      };
+    }
 
-      // Handle a timer firing slightly early.
-      const remaining =
-        Number(room.countdownEndsAt) - Date.now();
+    // Handle a timer firing slightly early.
+    const remaining = Number(room.countdownEndsAt) - Date.now();
 
-      if (remaining > 0) {
-        return {
-          save: false,
-          value: {
-            retryAfter: remaining,
-          },
-        };
-      }
+    if (remaining > 0) {
+      return {
+        save: false,
+        value: {
+          retryAfter: remaining,
+        },
+      };
+    }
 
-      room.status = "playing";
-      room.countdownEndsAt = null;
+    room.status = "playing";
+    room.countdownEndsAt = null;
 
-      const next = nextQuestion(room, Date.now());
+    const next = nextQuestion(room, Date.now());
 
-      if (!next.started) {
-        finishByDistancePlain(room);
-
-        return {
-          save: true,
-          value: {
-            finished: true,
-            state: publicState(room),
-          },
-        };
-      }
+    if (!next.started) {
+      finishByDistancePlain(room);
 
       return {
         save: true,
         value: {
-          finished: false,
-          deadline: next.deadline,
+          finished: true,
           state: publicState(room),
         },
       };
     }
-  );
+
+    return {
+      save: true,
+      value: {
+        finished: false,
+        deadline: next.deadline,
+        state: publicState(room),
+      },
+    };
+  });
 
   if (!result) return;
 
@@ -401,19 +398,19 @@ async function startFirstQuestion({
 
   // Retry if the timer fired before the shared deadline.
   if (value.retryAfter !== undefined) {
-    setTimeout(() => {
-      startFirstQuestion({
-        io,
-        roomCode,
-        gameService,
-        expectedCountdownEndsAt,
-      }).catch((error) => {
-        console.error(
-          "[gameHandlers] countdown retry failed:",
-          error
-        );
-      });
-    }, Math.max(1, value.retryAfter));
+    setTimeout(
+      () => {
+        startFirstQuestion({
+          io,
+          roomCode,
+          gameService,
+          expectedCountdownEndsAt,
+        }).catch((error) => {
+          console.error("[gameHandlers] countdown retry failed:", error);
+        });
+      },
+      Math.max(1, value.retryAfter),
+    );
 
     return;
   }
@@ -423,10 +420,7 @@ async function startFirstQuestion({
   if (value.finished) {
     await gameService.removeRoomDeadline(roomCode);
   } else {
-    await gameService.scheduleRoomDeadline(
-      roomCode,
-      value.deadline
-    );
+    await gameService.scheduleRoomDeadline(roomCode, value.deadline);
   }
 }
 
@@ -660,20 +654,117 @@ async function submitAnswer({ io, socket, gameService, payload }) {
   if (!updateResult) return;
 
   if (resolutionResult && resolutionResult.resolved) {
-    await gameService.removeRoomDeadline(roomCode);
+  await gameService.removeRoomDeadline(roomCode);
 
-    const movementPayload = resolutionResult.movement || {
+  const movementPayload = resolutionResult.movement || {
+    roomCode,
+    roundId: resolutionResult.roundId,
+    moves: [],
+  };
+
+  io.to(roomCode).emit("round:movement", movementPayload);
+  emitState(io, roomCode, updateResult.state);
+
+  const resolvedRoundId = resolutionResult.roundId;
+
+  // Fallback: advance if one or more clients never acknowledge animation.
+  setTimeout(() => {
+    advanceRoundAfterAnimation({
+      io,
       roomCode,
-      roundId: resolutionResult.roundId,
-      moves: [],
-    };
+      gameService,
+      roundId: resolvedRoundId,
+    }).catch((error) => {
+      console.error(
+        "[gameHandlers] animation timeout fallback failed:",
+        error,
+      );
+    });
+  }, ANIMATION_ACK_TIMEOUT_MS);
 
-    io.to(roomCode).emit("round:movement", movementPayload);
-    emitState(io, roomCode, updateResult.state);
-    return;
-  }
+  return;
+}
 
   emitState(io, roomCode, updateResult.state);
+}
+
+async function advanceRoundAfterAnimation({
+  io,
+  roomCode,
+  gameService,
+  roundId,
+}) {
+  // Let the movement animation finish, or let the fallback release the round.
+  await waitBetweenRounds();
+
+  const result = await gameService.withRoomLock(roomCode, async (room) => {
+    // Ignore stale timers and duplicate acknowledgements.
+    if (
+      room.status !== "playing" ||
+      Number(room.roundId) !== Number(roundId) ||
+      !room.roundResolved ||
+      !room.roundMovementPending
+    ) {
+      return {
+        save: false,
+        value: null,
+      };
+    }
+
+    // This lock-protected change ensures this round advances only once.
+    room.roundMovementPending = false;
+
+    if (
+      room.deckIndex >= MATCH_QUESTION_COUNT ||
+      room.deckIndex >= room.questionDeck.length
+    ) {
+      finishByDistancePlain(room);
+
+      return {
+        save: true,
+        value: {
+          finished: true,
+          state: publicState(room),
+        },
+      };
+    }
+
+    const next = nextQuestion(room, Date.now());
+
+    if (!next.started) {
+      finishByDistancePlain(room);
+
+      return {
+        save: true,
+        value: {
+          finished: true,
+          state: publicState(room),
+        },
+      };
+    }
+
+    return {
+      save: true,
+      value: {
+        finished: false,
+        deadline: next.deadline,
+        state: publicState(room),
+      },
+    };
+  });
+
+  if (!result || !result.value) return;
+
+  emitState(io, roomCode, result.value.state);
+
+  if (result.value.finished) {
+    await gameService.removeRoomDeadline(roomCode);
+  } else {
+    await gameService.scheduleRoomDeadline(
+      roomCode,
+      result.value.deadline,
+    );
+  }
 }
 
 async function animationComplete({ io, socket, gameService, payload }) {
@@ -695,14 +786,12 @@ async function animationComplete({ io, socket, gameService, payload }) {
       player.socketId !== socket.id ||
       room.status !== "playing" ||
       !room.roundMovementPending ||
+      !room.roundResolved ||
       Number(room.roundId) !== roundId
     ) {
       return {
         save: false,
-        value: {
-          advanced: false,
-          state: publicState(room),
-        },
+        value: null,
       };
     }
 
@@ -710,78 +799,33 @@ async function animationComplete({ io, socket, gameService, payload }) {
     room.roundAnimationAcks[playerId] = true;
 
     const activePlayers = connectedPlayers(room);
-    const allAcknowledged = activePlayers.every((activePlayer) =>
-      Object.prototype.hasOwnProperty.call(
-        room.roundAnimationAcks,
-        activePlayer.id,
-      ),
-    );
-
-    if (!allAcknowledged) {
-      return {
-        save: true,
-        value: {
-          advanced: false,
-          state: publicState(room),
-        },
-      };
-    }
-
-    room.roundMovementPending = false;
-
-    if (
-      room.deckIndex >= MATCH_QUESTION_COUNT ||
-      room.deckIndex >= room.questionDeck.length
-    ) {
-      finishByDistancePlain(room);
-
-      return {
-        save: true,
-        value: {
-          advanced: true,
-          finished: true,
-          state: publicState(room),
-        },
-      };
-    }
-
-    await waitBetweenRounds();
-
-    const next = nextQuestion(room, Date.now());
-
-    if (!next.started) {
-      finishByDistancePlain(room);
-
-      return {
-        save: true,
-        value: {
-          advanced: true,
-          finished: true,
-          state: publicState(room),
-        },
-      };
-    }
+    const allAcknowledged =
+      activePlayers.length > 0 &&
+      activePlayers.every((activePlayer) =>
+        Object.prototype.hasOwnProperty.call(
+          room.roundAnimationAcks,
+          activePlayer.id,
+        ),
+      );
 
     return {
       save: true,
       value: {
-        advanced: true,
-        finished: false,
-        deadline: next.deadline,
-        state: publicState(room),
+        allAcknowledged,
       },
     };
   });
 
-  if (!result) return;
-
-  emitState(io, roomCode, result.state);
-
-  if (result.advanced && !result.finished) {
-    await gameService.scheduleRoomDeadline(roomCode, result.deadline);
-  } else if (result.finished) {
-    await gameService.removeRoomDeadline(roomCode);
+  if (!result || !result.value || !result.value.allAcknowledged) {
+    return;
   }
+
+  await advanceRoundAfterAnimation({
+    io,
+    roomCode,
+    gameService,
+    roundId,
+  });
 }
 
 async function requestRematch({ io, socket, gameService }) {
