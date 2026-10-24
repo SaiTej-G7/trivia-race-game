@@ -688,6 +688,7 @@ async function submitAnswer({ io, socket, gameService, payload }) {
   emitState(io, roomCode, updateResult.state);
 }
 
+
 async function advanceRoundAfterAnimation({
   io,
   roomCode,
@@ -748,16 +749,18 @@ async function advanceRoundAfterAnimation({
     };
   });
 
-  if (!result || !result.value) return;
+  // withRoomLock unwraps the callback's value.
+  if (!result) return;
 
-  emitState(io, roomCode, result.value.state);
+  emitState(io, roomCode, result.state);
 
-  if (result.value.finished) {
+  if (result.finished) {
     await gameService.removeRoomDeadline(roomCode);
   } else {
-    await gameService.scheduleRoomDeadline(roomCode, result.value.deadline);
+    await gameService.scheduleRoomDeadline(roomCode, result.deadline);
   }
 }
+
 
 async function animationComplete({ io, socket, gameService, payload }) {
   const roomCode = socket.data && socket.data.roomCode;
@@ -766,7 +769,6 @@ async function animationComplete({ io, socket, gameService, payload }) {
   if (!roomCode || !playerId) return;
 
   const roundId = Number(payload && payload.roundId);
-
   if (!Number.isSafeInteger(roundId) || roundId < 1) return;
 
   const result = await gameService.withRoomLock(roomCode, async (room) => {
@@ -781,16 +783,14 @@ async function animationComplete({ io, socket, gameService, payload }) {
       !room.roundResolved ||
       Number(room.roundId) !== roundId
     ) {
-      return {
-        save: false,
-        value: null,
-      };
+      return { save: false, value: null };
     }
 
     room.roundAnimationAcks = toRecord(room.roundAnimationAcks);
     room.roundAnimationAcks[playerId] = true;
 
     const activePlayers = connectedPlayers(room);
+
     const allAcknowledged =
       activePlayers.length > 0 &&
       activePlayers.every((activePlayer) =>
@@ -800,17 +800,11 @@ async function animationComplete({ io, socket, gameService, payload }) {
         ),
       );
 
-    return {
-      save: true,
-      value: {
-        allAcknowledged,
-      },
-    };
+    return { save: true, value: { allAcknowledged } };
   });
 
-  if (!result || !result.value || !result.value.allAcknowledged) {
-    return;
-  }
+  // withRoomLock returns the callback's value directly.
+  if (!result || !result.allAcknowledged) return;
 
   await advanceRoundAfterAnimation({
     io,
