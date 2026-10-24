@@ -654,36 +654,36 @@ async function submitAnswer({ io, socket, gameService, payload }) {
   if (!updateResult) return;
 
   if (resolutionResult && resolutionResult.resolved) {
-  await gameService.removeRoomDeadline(roomCode);
+    await gameService.removeRoomDeadline(roomCode);
 
-  const movementPayload = resolutionResult.movement || {
-    roomCode,
-    roundId: resolutionResult.roundId,
-    moves: [],
-  };
-
-  io.to(roomCode).emit("round:movement", movementPayload);
-  emitState(io, roomCode, updateResult.state);
-
-  const resolvedRoundId = resolutionResult.roundId;
-
-  // Fallback: advance if one or more clients never acknowledge animation.
-  setTimeout(() => {
-    advanceRoundAfterAnimation({
-      io,
+    const movementPayload = resolutionResult.movement || {
       roomCode,
-      gameService,
-      roundId: resolvedRoundId,
-    }).catch((error) => {
-      console.error(
-        "[gameHandlers] animation timeout fallback failed:",
-        error,
-      );
-    });
-  }, ANIMATION_ACK_TIMEOUT_MS);
+      roundId: resolutionResult.roundId,
+      moves: [],
+    };
 
-  return;
-}
+    io.to(roomCode).emit("round:movement", movementPayload);
+    emitState(io, roomCode, updateResult.state);
+
+    const resolvedRoundId = resolutionResult.roundId;
+
+    // Fallback: advance if one or more clients never acknowledge animation.
+    setTimeout(() => {
+      advanceRoundAfterAnimation({
+        io,
+        roomCode,
+        gameService,
+        roundId: resolvedRoundId,
+      }).catch((error) => {
+        console.error(
+          `[gameHandlers] Round fallback failed for ${roomCode}:`,
+          error,
+        );
+      });
+    }, ANIMATION_ACK_TIMEOUT_MS);
+
+    return;
+  }
 
   emitState(io, roomCode, updateResult.state);
 }
@@ -694,16 +694,12 @@ async function advanceRoundAfterAnimation({
   gameService,
   roundId,
 }) {
-  // Let the movement animation finish, or let the fallback release the round.
-  await waitBetweenRounds();
-
   const result = await gameService.withRoomLock(roomCode, async (room) => {
-    // Ignore stale timers and duplicate acknowledgements.
     if (
       room.status !== "playing" ||
-      Number(room.roundId) !== Number(roundId) ||
       !room.roundResolved ||
-      !room.roundMovementPending
+      !room.roundMovementPending ||
+      Number(room.roundId) !== Number(roundId)
     ) {
       return {
         save: false,
@@ -711,7 +707,6 @@ async function advanceRoundAfterAnimation({
       };
     }
 
-    // This lock-protected change ensures this round advances only once.
     room.roundMovementPending = false;
 
     if (
@@ -760,10 +755,7 @@ async function advanceRoundAfterAnimation({
   if (result.value.finished) {
     await gameService.removeRoomDeadline(roomCode);
   } else {
-    await gameService.scheduleRoomDeadline(
-      roomCode,
-      result.value.deadline,
-    );
+    await gameService.scheduleRoomDeadline(roomCode, result.value.deadline);
   }
 }
 
@@ -955,4 +947,5 @@ module.exports = {
   mountGameHandlers,
   publicState,
   nextQuestion,
+  advanceRoundAfterAnimation,
 };

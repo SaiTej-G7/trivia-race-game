@@ -9,7 +9,10 @@ const { createAdapter } = require("@socket.io/redis-adapter");
 
 const { RedisGameService } = require("./services/RedisGameService");
 const { mountConnectionHandlers } = require("./socket/connectionHandlers");
-const { mountGameHandlers } = require("./socket/gameHandlers");
+const {
+  mountGameHandlers,
+  advanceRoundAfterAnimation,
+} = require("./socket/gameHandlers");
 const {
   resolveIfExpired,
   checkExpiredRooms,
@@ -178,6 +181,7 @@ async function buildApplication() {
           limit: 100,
           gameService,
           io,
+          advanceRound: advanceRoundAfterAnimation,
         });
 
         if (summary.failed > 0) {
@@ -222,6 +226,7 @@ async function buildApplication() {
             roomCode,
             gameService,
             io,
+            advanceRound: advanceRoundAfterAnimation,
           });
         }
 

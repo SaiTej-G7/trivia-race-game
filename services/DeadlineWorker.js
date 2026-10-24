@@ -1,6 +1,7 @@
 "use strict";
 
 const { resolveRound, MAX_PLAYERS } = require("./GameEngine");
+const { advanceRoundAfterAnimation } = require("../socket/gameHandlers");
 
 function collectionToArray(collection) {
   if (Array.isArray(collection)) return collection;
@@ -83,7 +84,7 @@ function publicState(room) {
   };
 }
 
-async function resolveIfExpired({ roomCode, gameService, io }) {
+async function resolveIfExpired({ roomCode, gameService, io, advanceRound }) {
   if (!roomCode || !gameService || !io) {
     throw new TypeError("roomCode, gameService, and io are required.");
   }
@@ -189,6 +190,23 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
 
   io.to(roomCode).emit("round:movement", movementPayload);
   io.to(roomCode).emit("room:state", result.state);
+  if (typeof advanceRound === "function") {
+    const resolvedRoundId = result.roundId;
+
+    setTimeout(() => {
+      advanceRound({
+        io,
+        roomCode,
+        gameService,
+        roundId: resolvedRoundId,
+      }).catch((error) => {
+        console.error(
+          `[DeadlineWorker] Round fallback failed for ${roomCode}:`,
+          error,
+        );
+      });
+    }, 5000);
+  }
 
   return {
     resolved: true,
@@ -197,7 +215,12 @@ async function resolveIfExpired({ roomCode, gameService, io }) {
   };
 }
 
-async function checkExpiredRooms({ limit = 100, gameService, io } = {}) {
+async function checkExpiredRooms({
+  limit = 100,
+  gameService,
+  io,
+  advanceRound,
+} = {}) {
   if (!gameService || !io) {
     throw new TypeError("gameService and io are required.");
   }
@@ -219,6 +242,7 @@ async function checkExpiredRooms({ limit = 100, gameService, io } = {}) {
           roomCode,
           gameService,
           io,
+          advanceRound,
         });
 
         return {
