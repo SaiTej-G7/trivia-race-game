@@ -392,9 +392,7 @@ async function startFirstQuestion({
 
   if (!result) return;
 
-  const value = result.value;
-
-  if (!value) return;
+  const value = result;
 
   // Retry if the timer fired before the shared deadline.
   if (value.retryAfter !== undefined) {
