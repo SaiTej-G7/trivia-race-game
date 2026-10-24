@@ -2363,358 +2363,391 @@
       }
 
       function renderQuestion(room) {
-        clearInterval(state.timerInterval);
+  clearInterval(state.timerInterval);
+  state.timerInterval = null;
 
-        const answers = $('answers');
-        const question = room.question;
+  const answers = $('answers');
+  const question = room.question;
 
-        if (room.status === 'waiting') {
-          $('questionCategory').textContent = 'Waiting room';
-          $('timerText').textContent = 'Ready when you are';
-          $('timerBar').style.width = '100%';
-          $('questionText').textContent = 'Your race starts here.';
-          answers.innerHTML = '';
-          setQuestionStatus(
-            room.players.filter(p => p.connected).length < 2
-              ? 'Share the room code and wait for at least one friend.'
-              : 'Racers are ready. The host can start the race!'
-          );
-          return;
+  // Waiting room
+  if (room.status === 'waiting') {
+    $('questionCategory').textContent = 'Waiting room';
+    $('timerText').textContent = 'Ready when you are';
+    $('timerBar').style.width = '100%';
+    $('questionText').textContent = 'Your race starts here.';
+    answers.innerHTML = '';
+
+    setQuestionStatus(
+      room.players.filter(p => p.connected).length < 2
+        ? 'Share the room code and wait for at least one friend.'
+        : 'Racers are ready. The host can start the race!'
+    );
+    return;
+  }
+
+  // Synchronized startup countdown
+  if (room.status === 'countdown') {
+    $('questionCategory').textContent = 'Get ready';
+    $('questionText').textContent = 'Eyes up. Fingers ready.';
+    answers.innerHTML = '';
+
+    const tick = () => {
+      const remaining = Math.max(
+        0,
+        Number(room.countdownEndsAt || 0) - Date.now()
+      );
+
+      $('timerText').textContent =
+        remaining > 0 ? `${Math.ceil(remaining / 1000)}s until start` : 'Starting…';
+
+      $('timerBar').style.width =
+        `${Math.min(100, Math.max(0, remaining / 3000 * 100))}%`;
+
+      $('timerText').style.color =
+        remaining < 1000 ? 'var(--pink)' : 'var(--yellow)';
+    };
+
+    tick();
+    state.timerInterval = setInterval(tick, 100);
+
+    setQuestionStatus('Every player can score independently. Good luck!');
+    return;
+  }
+
+  // Finished match: preserve the last question and reveal the correct answer.
+  if (room.status === 'finished') {
+    const result = room.lastRoundResult;
+    const feedback = state.feedbackByRound.get(room.roundId);
+    const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
+
+    const correctIndex =
+      result && Number.isInteger(result.correctIndex)
+        ? result.correctIndex
+        : null;
+
+    $('timerText').textContent = '🏆 Finished';
+    $('timerBar').style.width = '100%';
+
+    if (question && Array.isArray(question.choices)) {
+      $('questionCategory').textContent =
+        `${question.category || 'Trivia'} · Final question`;
+
+      $('questionText').textContent = question.text;
+
+      answers.innerHTML = question.choices.map((choice, i) => {
+        const isSelected =
+          selectedChoice === i ||
+          (feedback && feedback.choiceIndex === i);
+
+        const isCorrect = correctIndex === i;
+        const isWrongSelection = isSelected && !isCorrect;
+
+        let classes = 'answer-btn';
+
+        if (isSelected) classes += ' selected';
+        if (isCorrect) classes += ' correct';
+        if (isWrongSelection) classes += ' wrong';
+
+        let indicator = '';
+
+        if (isCorrect) {
+          indicator =
+            '<span style="margin-left:auto;color:var(--mint)">✓ Correct answer</span>';
+        } else if (isSelected) {
+          indicator =
+            '<span style="margin-left:auto;color:var(--pink)">✗ Your answer</span>';
         }
 
-        if (room.status === 'countdown') {
-          $('questionCategory').textContent = 'Get ready';
-          $('questionText').textContent = 'Eyes up. Fingers ready.';
-          answers.innerHTML = '';
+        return `
+          <button class="${classes}" disabled>
+            <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
+            <span>${escapeHtml(choice)}</span>
+            ${indicator}
+          </button>
+        `;
+      }).join('');
 
-          const tick = () => {
-            const remaining = Math.max(
-              0,
-              (room.deadline || Date.now()) - Date.now()
-            );
+      const correctNames = (result?.correctPlayers || [])
+        .map(player => player.name);
 
-            $('timerText').textContent = `${Math.ceil(remaining / 1000)}s left`;
-            $('timerBar').style.width =
-              `${Math.max(0, remaining / 20000 * 100)}%`;
+      const message =
+        result?.message ||
+        (room.winner
+          ? `${room.winner.name} won Trivia Race!`
+          : 'Race complete.');
 
-            $('timerText').style.color =
-              remaining < 5000 ? 'var(--pink)' : 'var(--yellow)';
-          };
+      setQuestionStatus(
+        message +
+          (correctNames.length
+            ? ' Correct: ' + correctNames.join(', ') + '.'
+            : ''),
+        correctNames.length ? 'good' : ''
+      );
+    } else {
+      $('questionCategory').textContent = 'Race complete';
+      $('questionText').textContent = 'What a race!';
+      answers.innerHTML = '';
 
-          tick();
-          state.timerInterval = setInterval(tick, 100);
-          setQuestionStatus('Every player can score independently. Good luck!');
-          return;
-        }
+      setQuestionStatus(
+        room.winner
+          ? `${room.winner.name} won Trivia Race!`
+          : 'Race complete.'
+      );
+    }
 
-        if (
-          room.status === 'finished' &&
-          !(room.roundResolved && room.lastRoundResult)
-        ) {
-          // Keep the final question visible after closing the results overlay.
-          // The game is finished, so answers remain disabled and no timer runs.
-          const result = room.lastRoundResult;
-          const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
-          const feedback = state.feedbackByRound.get(room.roundId);
+    return;
+  }
 
-          const correctIndex =
-            result && Number.isInteger(result.correctIndex)
-              ? result.correctIndex
-              : feedback && feedback.correct
-                ? feedback.choiceIndex
-                : null;
+  // Resolved round: show the answer while movement/transition is pending.
+  if (room.roundResolved && room.lastRoundResult) {
+    const result = room.lastRoundResult;
 
-          $('timerText').textContent = '🏆 Finished';
-          $('timerBar').style.width = '100%';
+    $('questionCategory').textContent =
+      question?.category || 'Round result';
 
-          if (question && Array.isArray(question.choices)) {
-            $('questionCategory').textContent =
-              `${question.category || 'Trivia'} · Final question`;
+    $('timerText').textContent = 'Round over';
+    $('timerBar').style.width = '0%';
+    $('questionText').textContent =
+      question?.text || 'Round complete';
 
-            $('questionText').textContent = question.text;
+    const selectedChoice =
+      state.selectedChoiceByRound.get(room.roundId);
 
-            answers.innerHTML = question.choices.map((choice, i) => {
-              const isSelected =
-                selectedChoice === i ||
-                (feedback && feedback.choiceIndex === i);
+    answers.innerHTML = question && Array.isArray(question.choices)
+      ? question.choices.map((choice, i) => {
+          const isCorrect = i === result.correctIndex;
+          const isSelected = selectedChoice === i;
 
-              const isCorrect = correctIndex === i;
-              const isWrongSelection = isSelected && !isCorrect;
+          let classes = 'answer-btn';
 
-              let classes = 'answer-btn';
+          if (isSelected) classes += ' selected';
+          if (isCorrect) classes += ' correct';
+          if (isSelected && !isCorrect) classes += ' wrong';
 
-              if (isSelected) classes += ' selected';
-              if (isCorrect) classes += ' correct';
-              if (isWrongSelection) classes += ' wrong';
+          let indicator = '';
 
-              return `
-        <button class="${classes}" disabled>
-          <span class="answer-letter">
-            ${String.fromCharCode(65 + i)}
-          </span>
-
-          <span>${escapeHtml(choice)}</span>
-
-          ${isSelected
-                  ? `<span style="margin-left:auto">
-                  ${isCorrect ? '✓' : '×'}
-                </span>`
-                  : ''
-                }
-
-          ${isCorrect && !isSelected
-                  ? '<span style="margin-left:auto;color:var(--mint)">Correct answer ✓</span>'
-                  : ''
-                }
-        </button>
-      `;
-            }).join('');
-
-            const correctNames =
-              (result && result.correctPlayers || [])
-                .map(player => player.name);
-
-            const resultMessage =
-              result && result.message
-                ? result.message
-                : room.winner
-                  ? `${room.winner.name} won Trivia Race!`
-                  : 'Race complete.';
-
-            setQuestionStatus(
-              resultMessage +
-              (correctNames.length
-                ? ' Correct: ' + correctNames.join(', ') + '.'
-                : ''),
-              correctNames.length ? 'good' : ''
-            );
-          } else {
-            $('questionCategory').textContent = 'Race complete';
-            $('questionText').textContent = 'What a race!';
-            answers.innerHTML = '';
-
-            setQuestionStatus(
-              room.winner
-                ? `${room.winner.name} won Trivia Race!`
-                : 'Race complete.'
-            );
-          }
-
-          return;
-        }
-
-        if (room.roundResolved && room.lastRoundResult) {
-          const result = room.lastRoundResult;
-          $('questionCategory').textContent = question ? question.category : 'Round result';
-          $('timerText').textContent = 'Round over';
-          $('timerBar').style.width = '0%';
-          $('questionText').textContent = question ? question.text : 'Round complete';
-
-          const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
-
-          answers.innerHTML = question
-            ? question.choices.map((choice, i) => {
-              const isCorrect = i === result.correctIndex;
-              const isSelected = selectedChoice === i;
-
-              let classes = 'answer-btn';
-
-              if (isSelected) classes += ' selected';
-              if (isCorrect) classes += ' correct';
-              if (isSelected && !isCorrect) classes += ' wrong';
-
-              let indicator = '';
-
-              if (isCorrect) {
-                indicator =
-                  '<span style="margin-left:auto;color:var(--mint)">✓ Correct</span>';
-              } else if (isSelected) {
-                indicator =
-                  '<span style="margin-left:auto;color:var(--pink)">✗ Your answer</span>';
-              }
-
-              return `
-        <button class="${classes}" disabled>
-          <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
-          <span>${escapeHtml(choice)}</span>
-          ${indicator}
-        </button>
-      `;
-            }).join('')
-            : '';
-
-          const names = (result.correctPlayers || []).map(player => player.name);
-          setQuestionStatus(
-            result.message + (names.length ? ' Correct: ' + names.join(', ') + '.' : ''),
-            names.length ? 'good' : 'bad'
-          );
-          return;
-        }
-
-        if (!question) {
-          $('questionCategory').textContent = 'Trivia';
-          $('questionText').textContent = 'Loading the next question…';
-          answers.innerHTML = '';
-          setQuestionStatus('Get ready for the next question.');
-          return;
-        }
-
-        $('questionCategory').textContent = `${question.category} · Q${room.roundNumber || room.roundId}`;
-        $('questionText').textContent = question.text;
-
-
-        const attempted = state.attemptedRoundIds.has(room.roundId);
-        const feedback = state.feedbackByRound.get(room.roundId);
-        const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
-
-        answers.innerHTML = question.choices.map((choice, i) => {
-          let cls = 'answer-btn';
-
-          if (selectedChoice === i) {
-            cls += ' selected';
-          }
-
-          if (feedback && feedback.choiceIndex === i) {
-            cls += feedback.correct ? ' correct' : ' wrong';
+          if (isCorrect) {
+            indicator =
+              '<span style="margin-left:auto;color:var(--mint)">✓ Correct</span>';
+          } else if (isSelected) {
+            indicator =
+              '<span style="margin-left:auto;color:var(--pink)">✗ Your answer</span>';
           }
 
           return `
-          <button class="${cls}" data-choice="${i}" ${attempted ? 'disabled' : ''}>
-          <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
-          <span>${escapeHtml(choice)}</span>
-          ${feedback && feedback.choiceIndex === i
-              ? (feedback.correct
+            <button class="${classes}" disabled>
+              <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
+              <span>${escapeHtml(choice)}</span>
+              ${indicator}
+            </button>
+          `;
+        }).join('')
+      : '';
+
+    const names = (result.correctPlayers || [])
+      .map(player => player.name);
+
+    setQuestionStatus(
+      (result.message || 'Round complete.') +
+        (names.length ? ' Correct: ' + names.join(', ') + '.' : ''),
+      names.length ? 'good' : 'bad'
+    );
+
+    return;
+  }
+
+  // Defensive fallback while waiting for the next question.
+  if (!question) {
+    $('questionCategory').textContent = 'Trivia';
+    $('questionText').textContent = 'Loading the next question…';
+    $('timerText').textContent = 'Get ready';
+    $('timerBar').style.width = '100%';
+    answers.innerHTML = '';
+
+    setQuestionStatus('Get ready for the next question.');
+    return;
+  }
+
+  // Active question
+  $('questionCategory').textContent =
+    `${question.category} · Q${room.roundNumber || room.roundId}`;
+
+  $('questionText').textContent = question.text;
+
+  const attempted = state.attemptedRoundIds.has(room.roundId);
+  const feedback = state.feedbackByRound.get(room.roundId);
+  const selectedChoice = state.selectedChoiceByRound.get(room.roundId);
+
+  answers.innerHTML = question.choices.map((choice, i) => {
+    let classes = 'answer-btn';
+
+    if (selectedChoice === i) classes += ' selected';
+
+    if (feedback && feedback.choiceIndex === i) {
+      classes += feedback.correct ? ' correct' : ' wrong';
+    }
+
+    return `
+      <button
+        class="${classes}"
+        data-choice="${i}"
+        ${attempted ? 'disabled' : ''}
+      >
+        <span class="answer-letter">${String.fromCharCode(65 + i)}</span>
+        <span>${escapeHtml(choice)}</span>
+        ${
+          feedback && feedback.choiceIndex === i
+            ? (feedback.correct
                 ? '<span style="margin-left:auto">✓</span>'
                 : '<span style="margin-left:auto">×</span>')
-              : ''}
-          </button>`;
-        }).join('');
+            : ''
+        }
+      </button>
+    `;
+  }).join('');
 
+  answers.querySelectorAll('[data-choice]').forEach(button => {
+    button.addEventListener('click', () => {
+      submitAnswer(Number(button.dataset.choice), room.roundId);
+    });
+  });
 
-        answers.querySelectorAll('[data-choice]').forEach(button => {
-          button.addEventListener('click', () => {
-            submitAnswer(Number(button.dataset.choice), room.roundId);
-          });
-        });
+  const deadline = Number(room.deadline || 0);
 
-        const tick = () => {
-          const remaining = Math.max(0, (room.deadline || Date.now()) - Date.now());
-          $('timerText').textContent = `${Math.ceil(remaining / 1000)}s left`;
-          $('timerBar').style.width = `${Math.max(0, remaining / 20000 * 100)}%`;
-          $('timerText').style.color = remaining < 5000 ? 'var(--pink)' : 'var(--yellow)';
-        };
+  const tick = () => {
+    const remaining = Math.max(0, deadline - Date.now());
 
-        tick();
-        state.timerInterval = setInterval(tick, 100);
+    $('timerText').textContent = `${Math.ceil(remaining / 1000)}s left`;
 
-        setQuestionStatus(
-          attempted
-            ? (feedback ? feedback.message : 'Answer submitted. Other racers can still answer.')
-            : 'Choose one answer. Every player gets their own attempt.'
-        );
+    $('timerBar').style.width =
+      `${Math.min(100, Math.max(0, remaining / 20000 * 100))}%`;
+
+    $('timerText').style.color =
+      remaining < 5000 ? 'var(--pink)' : 'var(--yellow)';
+  };
+
+  tick();
+  state.timerInterval = setInterval(tick, 100);
+
+  setQuestionStatus(
+    attempted
+      ? (feedback
+          ? feedback.message
+          : 'Answer submitted. Other racers can still answer.')
+      : 'Choose one answer. Every player gets their own attempt.'
+  );
+}
+     
+function stopStartCountdown() {
+  if (state.countdownInterval !== null) {
+    clearInterval(state.countdownInterval);
+    state.countdownInterval = null;
+  }
+
+  state.countdownStage = null;
+  state.countdownDeadline = null;
+
+  const overlay = $('startCountdownOverlay');
+
+  if (overlay) {
+    overlay.classList.add('hidden');
+  }
+}
+
+function renderStartCountdown(room) {
+  const deadline = Number(room.countdownEndsAt);
+
+  if (
+    room.status !== 'countdown' ||
+    !Number.isFinite(deadline) ||
+    deadline <= 0
+  ) {
+    stopStartCountdown();
+    return;
+  }
+
+  const overlay = $('startCountdownOverlay');
+  const number = $('startCountdownNumber');
+  const messageElement = $('startCountdownMessage');
+
+  if (!overlay || !number || !messageElement) {
+    console.error('[countdown] Countdown overlay elements are missing.');
+    return;
+  }
+
+  overlay.classList.remove('hidden');
+
+  if (
+    state.countdownDeadline === deadline &&
+    state.countdownInterval !== null
+  ) {
+    return;
+  }
+
+  if (state.countdownInterval !== null) {
+    clearInterval(state.countdownInterval);
+    state.countdownInterval = null;
+  }
+
+  state.countdownDeadline = deadline;
+  state.countdownStage = null;
+
+  const updateCountdown = () => {
+    // Always calculate from the shared server deadline.
+    const remaining = Math.max(0, deadline - Date.now());
+
+    let stage;
+    let message;
+
+    if (remaining > 2250) {
+      stage = '3';
+      message = 'Get ready!';
+    } else if (remaining > 1500) {
+      stage = '2';
+      message = 'Take your position!';
+    } else if (remaining > 750) {
+      stage = '1';
+      message = 'Get set!';
+    } else {
+      stage = 'GO!';
+      message = 'Race ahead!';
+    }
+
+    if (stage !== state.countdownStage) {
+      state.countdownStage = stage;
+
+      number.textContent = stage;
+      number.classList.remove('animate', 'go');
+
+      if (stage === 'GO!') {
+        number.classList.add('go');
       }
 
-      function stopStartCountdown() {
-        if (state.countdownInterval !== null) {
-          clearInterval(state.countdownInterval);
-          state.countdownInterval = null;
-        }
+      void number.offsetWidth;
+      number.classList.add('animate');
 
-        state.countdownStage = null;
-        state.countdownDeadline = null;
+      messageElement.textContent = message;
+    }
 
-        const overlay = $('startCountdownOverlay');
+    if (remaining <= 0) {
+      clearInterval(state.countdownInterval);
+      state.countdownInterval = null;
+    }
+  };
 
-        if (overlay) {
-          overlay.classList.add('hidden');
-        }
-      }
+  updateCountdown();
+  state.countdownInterval = setInterval(updateCountdown, 50);
+}
 
-      function renderStartCountdown(room) {
-        if (room.status !== 'countdown' || !room.countdownEndsAt) {
-          stopStartCountdown();
-          return;
-        }
-
-        const overlay = $('startCountdownOverlay');
-
-        if (!overlay) return;
-
-        overlay.classList.remove('hidden');
-
-        // Reuse the server deadline so all players stay synchronized.
-        if (
-          state.countdownDeadline !== room.countdownEndsAt ||
-          state.countdownInterval === null
-        ) {
-          if (state.countdownInterval !== null) {
-            clearInterval(state.countdownInterval);
-          }
-
-          state.countdownDeadline = room.countdownEndsAt;
-          state.countdownStage = null;
-
-          const updateCountdown = () => {
-            const remaining = Math.max(
-              0,
-              state.countdownDeadline - Date.now()
-            );
-
-            // Divide the existing 3-second startup period into four stages.
-            let stage;
-            let message;
-
-            if (remaining > 2250) {
-              stage = '3';
-              message = 'Get ready!';
-            } else if (remaining > 1500) {
-              stage = '2';
-              message = 'Take your position!';
-            } else if (remaining > 750) {
-              stage = '1';
-              message = 'Get set!';
-            } else {
-              stage = 'GO!';
-              message = 'Race ahead!';
-            }
-
-            if (stage !== state.countdownStage) {
-              state.countdownStage = stage;
-
-              const number = $('startCountdownNumber');
-              number.textContent = stage;
-              number.classList.remove('animate', 'go');
-
-              if (stage === 'GO!') {
-                number.classList.add('go');
-              }
-
-              // Restart the animation for each new countdown stage.
-              void number.offsetWidth;
-              number.classList.add('animate');
-
-              $('startCountdownMessage').textContent = message;
-            }
-
-            if (remaining <= 0) {
-              clearInterval(state.countdownInterval);
-              state.countdownInterval = null;
-            }
-          };
-
-          updateCountdown();
-          state.countdownInterval = setInterval(updateCountdown, 50);
-        }
-      }
-
-      function renderState(room) {
+function renderState(room) {
         if (!room) return;
 
         const previousStatus = state.room && state.room.status;
         state.room = room;
         state.roomCode = room.roomCode;
         renderStartCountdown(room);
-
+        renderQuestion(room);
+        
         if (room.status !== 'finished' && winnerRevealTimeout !== null) {
           clearTimeout(winnerRevealTimeout);
           winnerRevealTimeout = null;

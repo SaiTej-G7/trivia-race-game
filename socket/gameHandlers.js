@@ -6,6 +6,7 @@ const {
   MAX_PLAYERS,
   QUESTION_TIME_MS,
   BETWEEN_ROUNDS_MS,
+  COUNTDOWN_MS,
   MATCH_QUESTION_COUNT,
   QUESTION_BANK,
   generateBoardEffects,
@@ -232,7 +233,7 @@ async function startGame({ io, socket, gameService }) {
 
     if (QUESTION_BANK.length < MATCH_QUESTION_COUNT) {
       throw new Error(
-        `Question bank must contain at least ${MATCH_QUESTION_COUNT} questions.`,
+        `Question bank must contain at least ${MATCH_QUESTION_COUNT} questions.`
       );
     }
 
@@ -248,18 +249,22 @@ async function startGame({ io, socket, gameService }) {
 
     if (questionDeck.length !== MATCH_QUESTION_COUNT) {
       throw new Error(
-        `Expected exactly ${MATCH_QUESTION_COUNT} questions per match.`,
+        `Expected exactly ${MATCH_QUESTION_COUNT} questions per match.`
       );
     }
 
     const now = Date.now();
+    const countdownEndsAt = now + COUNTDOWN_MS;
 
-    room.status = "playing";
+    // Initialize the match but do not start Question 1 yet.
+    room.status = "countdown";
     room.winner = null;
     room.currentQuestion = null;
     room.lastRoundResult = null;
     room.roundId = 0;
     room.deckIndex = 0;
+    room.deadline = null;
+    room.countdownEndsAt = countdownEndsAt;
     room.lastResolutionTimestamp = 0;
     room.matchStartedAt = now;
     room.questionDeck = questionDeck;
@@ -280,39 +285,149 @@ async function startGame({ io, socket, gameService }) {
       currentPlayer.positionReachedAt = now;
     }
 
-    const next = nextQuestion(room, now);
-
-    if (!next.started) {
-      throw new Error(`Unable to start first question: ${next.reason}`);
-    }
-
     return {
       save: true,
       value: {
         roomCode: room.code,
         boardEffects: room.boardEffects,
-        totalQuestions: room.questionDeck.length,
-        roundId: next.roundId,
-        deadline: next.deadline,
+        totalQuestions: questionDeck.length,
+        countdownEndsAt,
         state: publicState(room),
       },
     };
   });
 
   if (!result || result.error) {
-    emitError(socket, (result && result.error) || "Unable to start the game.");
+    emitError(
+      socket,
+      (result && result.error) || "Unable to start the game."
+    );
     return;
   }
 
-  await gameService.scheduleRoomDeadline(result.roomCode, result.deadline);
+  // Broadcast the same server timestamp to every player.
+  emitState(io, result.roomCode, result.state);
 
   io.to(result.roomCode).emit("match:initialized", {
     roomCode: result.roomCode,
     boardEffects: result.boardEffects,
     totalQuestions: result.totalQuestions,
+    countdownEndsAt: result.countdownEndsAt,
   });
 
-  emitState(io, result.roomCode, result.state);
+  // Recheck the room when the shared countdown expires.
+  setTimeout(() => {
+    startFirstQuestion({
+      io,
+      roomCode: result.roomCode,
+      gameService,
+      expectedCountdownEndsAt: result.countdownEndsAt,
+    }).catch((error) => {
+      console.error(
+        "[gameHandlers] countdown completion failed:",
+        error
+      );
+    });
+  }, Math.max(0, result.countdownEndsAt - Date.now()));
+}
+
+async function startFirstQuestion({
+  io,
+  roomCode,
+  gameService,
+  expectedCountdownEndsAt,
+}) {
+  const result = await gameService.withRoomLock(
+    roomCode,
+    async (room) => {
+      // Ignore stale timers from an earlier match or countdown.
+      if (
+        room.status !== "countdown" ||
+        Number(room.countdownEndsAt) !==
+          Number(expectedCountdownEndsAt)
+      ) {
+        return {
+          save: false,
+          value: null,
+        };
+      }
+
+      // Handle a timer firing slightly early.
+      const remaining =
+        Number(room.countdownEndsAt) - Date.now();
+
+      if (remaining > 0) {
+        return {
+          save: false,
+          value: {
+            retryAfter: remaining,
+          },
+        };
+      }
+
+      room.status = "playing";
+      room.countdownEndsAt = null;
+
+      const next = nextQuestion(room, Date.now());
+
+      if (!next.started) {
+        finishByDistancePlain(room);
+
+        return {
+          save: true,
+          value: {
+            finished: true,
+            state: publicState(room),
+          },
+        };
+      }
+
+      return {
+        save: true,
+        value: {
+          finished: false,
+          deadline: next.deadline,
+          state: publicState(room),
+        },
+      };
+    }
+  );
+
+  if (!result) return;
+
+  const value = result.value;
+
+  if (!value) return;
+
+  // Retry if the timer fired before the shared deadline.
+  if (value.retryAfter !== undefined) {
+    setTimeout(() => {
+      startFirstQuestion({
+        io,
+        roomCode,
+        gameService,
+        expectedCountdownEndsAt,
+      }).catch((error) => {
+        console.error(
+          "[gameHandlers] countdown retry failed:",
+          error
+        );
+      });
+    }, Math.max(1, value.retryAfter));
+
+    return;
+  }
+
+  emitState(io, roomCode, value.state);
+
+  if (value.finished) {
+    await gameService.removeRoomDeadline(roomCode);
+  } else {
+    await gameService.scheduleRoomDeadline(
+      roomCode,
+      value.deadline
+    );
+  }
 }
 
 async function recordAnswerOnce({
