@@ -1,99 +1,129 @@
 # Trivia Race
 
-A real-time, room-code-based multiplayer trivia race built with Node.js, Express, and Socket.IO. Players answer general-knowledge questions, move across a 30-space race board, trigger boosts and slides, and compete for the finish. The browser UI is implemented in vanilla HTML, CSS, and JavaScript; retro audio is synthesized locally with the Web Audio API and does not require sound assets.
+A real-time, room-code-based multiplayer trivia game built with **Node.js, Express, Socket.IO, and Redis**. Players answer general-knowledge questions, move across a 30-space race board, trigger boosts and slides, and race to the finish. The browser UI is built with vanilla HTML, CSS, and JavaScript. Retro sound effects are synthesized in the browser with the Web Audio API, so no audio files are required.
+
+**Live game:** https://trivia-race-game.onrender.com  
+**Repository:** https://github.com/SaiTej-G7/trivia-race-game
 
 ## Features
 
-- Real-time rooms with shareable room codes and reconnectable player sessions.
-- Six-player room capacity, nickname validation, and host-controlled match starts.
-- Server-authoritative question progression, answer validation, movement, and winner selection.
-- 30-question match cap and immediate finish when a player reaches space 30.
-- Four boosts and four slides, rendered as vector-like board effects.
-- Sequential movement animation ordered by server-provided move plans.
-- Responsive desktop two-column layout and a single-column tablet/mobile layout down to 320px.
-- Zero-asset synthesized sounds for correct answers/boosts, penalties/slides, and victory.
+- Real-time multiplayer rooms with shareable room codes.
+- Reconnectable player sessions.
+- Room capacity of up to six players, nickname validation, and host-controlled match starts.
+- Server-authoritative game state, answer validation, question progression, movement, and winner selection.
+- Redis-backed room/game state for the deployed server.
+- A maximum of 30 questions per match; a player reaching space 30 ends the race.
+- Four boosts and four slides on the 30-space board.
+- Ordered movement animations based on server-provided move plans.
+- Animation acknowledgements to coordinate progression between rounds.
+- Responsive layout for desktop, tablet, and mobile screens down to 320px.
+- Locally synthesized sound effects for correct answers, boosts, penalties, slides, and victory.
 
-## Architecture overview
+## Tech stack
+
+- **Runtime:** Node.js 18+
+- **Server:** Express
+- **Realtime communication:** Socket.IO
+- **Shared game state:** Redis, using the configured Redis connection
+- **Socket.IO scaling:** `@socket.io/redis-adapter`
+- **Client:** HTML, CSS, vanilla JavaScript
+- **Audio:** Web Audio API
+- **Hosting:** Render
+
+## Project structure
 
 ```text
 trivia-race/
-├── server.js                 # Express app, Socket.IO events, authoritative game state/rules
-├── package.json              # Dependencies and npm scripts
-├── package-lock.json         # Locked dependency versions (recommended)
-├── .env                      # Optional local environment variables; never commit secrets
-├── .gitignore                # Excludes node_modules, .env, logs, and local artifacts
-└── public/
-    └── index.html            # Single-page UI, responsive CSS, client logic, board rendering, Web Audio SFX
+├── public/
+│   └── index.html                 # Game UI, responsive styles, client logic, board and sound effects
+├── services/
+│   ├── RedisGameService.js        # Redis-backed game state and room locking
+│   ├── GameEngine.js              # Core game rules and state transitions
+│   └── DeadlineWorker.js           # Deadline/expired-room processing
+├── socket/
+│   ├── connectionHandlers.js      # Socket connection and player/session events
+│   └── gameHandlers.js            # Game actions, rounds, answers and animation acknowledgements
+├── app.js                         # Express/Socket.IO setup, Redis adapter and worker polling
+├── server.js                      # Production/local server entry point
+├── package.json                   # Scripts and dependencies
+├── package-lock.json              # Locked dependency versions
+├── .env                           # Local environment variables; do not commit
+├── .gitignore                     # Excludes secrets and local/generated files
+└── README.md
 ```
 
-### Runtime responsibilities
-
-**Server (`server.js`)**
-
-- Creates and manages rooms and player identities.
-- Enforces the maximum of six players and validates room/name inputs.
-- Keeps authoritative positions, scores, streaks, rounds, question answers, board effects, and match status.
-- Verifies host authority before starting or restarting a match.
-- Emits room state, answer feedback, and movement plans to connected clients.
-- Resolves winner and tie-break rules on the server rather than trusting client calculations.
-
-**Client (`public/index.html`)**
-
-- Displays the lobby, question, board, controls, racers, and results.
-- Uses Socket.IO to send player actions and receive authoritative updates.
-- Animates server-provided movement plans in their supplied order.
-- Stores only the reconnect/session information needed by the existing client flow.
-- Generates optional sound effects with native Web Audio oscillators. Audio is lazily initialized or resumed from user-gesture handlers; if audio is unsupported or blocked, gameplay continues without sound.
+> Deployment note: Render starts the app through `server.js`. The app uses `app.js` to initialize the Express/Socket.IO application and background deadline checks. Vercel-specific files are not required when Render is the only deployment target.
 
 ## Requirements
 
-- Node.js 18 or newer recommended.
-- npm (bundled with Node.js).
-- A modern browser with Socket.IO-compatible WebSocket support. Web Audio is optional.
+- Node.js 18 or newer
+- npm
+- A Redis service and its connection URL for environments that use Redis-backed game state
+- A modern browser with Socket.IO support; Web Audio is optional
 
-## Installation and setup
+## Run locally
 
-1. Install Node.js from the official Node.js website if it is not already installed.
-2. Open a terminal in the project root (the directory containing `package.json`).
-3. Install dependencies:
+1. Clone the repository and open the project directory:
+
+   ```bash
+   git clone https://github.com/SaiTej-G7/trivia-race-game.git
+   cd trivia-race-game
+   ```
+
+2. Install dependencies:
 
    ```bash
    npm install
    ```
 
-4. Review `package.json` and confirm the intended start script. If the project does not already define one, add a script such as `"start": "node server.js"` without removing existing scripts.
-5. Configure environment variables only if the server implementation reads them. For example, a deployment may use `PORT=3000`; do not add environment variables that the current code does not consume. If using a `.env` file, ensure the project loads it (for example with `dotenv`) before relying on it.
-6. Start the application:
+3. Create a local `.env` file in the project root and set the environment variables required by your deployment configuration. For example:
+
+   ```dotenv
+   PORT=3000
+   NODE_ENV=development
+   REDIS_URL=your_redis_connection_url
+   ```
+
+   Replace the Redis placeholder with a valid connection URL. Keep credentials private and never commit `.env`. Only set variables that the application uses.
+
+4. Start the server:
 
    ```bash
    npm start
    ```
 
-   If there is no `start` script, run:
+   The development script is also configured to run `node server.js`:
 
    ```bash
-   node server.js
+   npm run dev
    ```
 
-7. Open the local URL printed by the server, commonly `http://localhost:3000` or the configured port.
-8. Open a second browser window or another device to test multiplayer. Create a room, share the room code, and join with another player. Only the active host should see and be authorized to use **Start Race**.
+5. Open the local address shown by the server, usually `http://localhost:3000` when `PORT=3000`.
+6. Open another browser window or device, create a room, and join with the room code to test multiplayer. The host should be the only player authorized to start or restart the race.
 
-## Environment configuration
+## Deploy on Render
 
-Keep local secrets and deployment-specific settings outside source control. A typical `.env` file might contain:
+1. Push the project to the GitHub repository.
+2. In Render, create or select a **Web Service** connected to the repository.
+3. Configure the service to use Node.js and set:
+   - **Build command:** `npm install`
+   - **Start command:** `npm start`
+4. Add the required environment variables in the Render dashboard, including `REDIS_URL` for your Redis service. Set `NODE_ENV=production` if appropriate for your configuration.
+5. Deploy and open the Render URL. Test the game using at least two browser sessions.
 
-```dotenv
-PORT=3000
-NODE_ENV=development
-```
+Keep Redis credentials and other secrets in Render's environment settings rather than in source control. Use HTTPS in production. If Redis is unavailable or misconfigured, room state and realtime features that depend on it may not work correctly.
 
-These are examples only: use a variable only if `server.js` reads it. Add `.env` to `.gitignore`; never commit credentials or session secrets. In production, configure environment variables in the hosting platform and serve the app over HTTPS.
+## Game flow and server authority
 
-## Game board and boustrophedon coordinate matrix
+The server is responsible for room membership, player identity/session handling, host permissions, question and answer validation, player positions, board effects, round progression, deadlines, and winner selection. The browser sends player actions and renders the state and movement plans supplied by the server; it should not independently determine legal moves or the winner.
 
-The 30-space board is a 5-column by 6-row matrix. Its traversal uses a boustrophedon (alternating snake) pattern: the first row moves left-to-right, the next row right-to-left, and the direction alternates on each row. This preserves a continuous path without jumping across the board.
+After a round's movement animation, clients acknowledge completion through the Socket.IO animation-complete event. The server coordinates acknowledgements from active connected players before advancing the game. Preserve the existing event names, payload shapes, and acknowledgement flow when modifying the client or server.
 
-For a one-based position `p` and a board width `W = 5`:
+## Board layout and coordinates
+
+The board contains 30 spaces arranged in five columns and six rows. Spaces follow a boustrophedon (snake-like) path: one row runs left-to-right, the next right-to-left, alternating on each row. Keep the client rendering and server movement logic consistent so a player's displayed movement matches the authoritative position.
+
+For a one-based position `p` and board width `W = 5`, the conceptual mapping is:
 
 ```text
 rowFromBottom = floor((p - 1) / W)
@@ -107,65 +137,80 @@ else:
 rowFromTop = (numberOfRows - 1) - rowFromBottom
 ```
 
-The resulting `(rowFromTop, column)` pair is the visual grid coordinate for position `p`. For vector effects, the same coordinate conversion should be used consistently when converting an origin and destination into screen-space or grid-space vectors. Keep this mapping aligned between the client renderer and server validation so displayed paths match authoritative movement.
+## Boosts, slides, and validation
 
-## Boost/slide graph safety and infinite-loop protection
+Boosts move a player forward and slides move a player backward according to the configured board effects. Keep effect generation and validation on the server. When changing this logic, verify that:
 
-Board effects can be modeled as directed edges from a trigger tile to a landing tile. A boost points forward; a slide points backward. The server should validate each edge before a match begins and reject malformed effects rather than letting the client decide whether a move is legal.
+- Effect positions and destinations are within the valid board range.
+- Boosts and slides follow the game's configured direction rules.
+- Duplicate origins and invalid landing pads are handled according to the existing rules.
+- Traversal is bounded and cycles cannot cause unbounded effect chaining.
+- The server-provided movement plan matches the path rendered by the client.
 
-Recommended safety checks, consistent with the application's existing validation logic:
+Do not replace or simplify the existing graph-validation or traversal logic without testing the current game rules.
 
-1. **Bounds:** every origin and landing position must be an integer within the permitted board range. Effect origins are constrained to the configured valid range (currently spaces 6–27).
-2. **Distinctness:** do not place multiple effects on the same origin unless the rules explicitly support it; do not allow a landing pad to create ambiguous chained movement.
-3. **Direction:** boosts must advance and slides must retreat, unless the specific game rules explicitly define otherwise.
-4. **Cycle detection:** treat effects as a directed graph and track visited nodes while traversing effect chains. If a node is revisited, the graph contains a cycle; reject or regenerate the effect configuration.
-5. **Traversal limit:** use a finite visited set and/or maximum number of traversed edges so malformed input cannot create an unbounded loop.
-6. **Landing-pad validation:** verify destinations do not violate configured landing-pad restrictions and that any effect chain terminates at a normal tile or a valid terminal position.
-7. **Server authority:** validate and resolve effects on the server. The browser only animates the supplied movement plan and should not invent a different path.
+## Responsive design and audio
 
-These checks prevent infinite chaining, invalid destinations, and disagreement between the visual board and the authoritative game state. Preserve the existing graph-validation loops and their traversal semantics when making UI changes.
+The client layout adapts from a desktop two-column view to a stacked tablet/mobile layout. Test at 320px, 360px, 390px, 768px, 1024px, and common desktop widths. Check long nicknames and room codes for overflow, and preserve usable touch targets on small screens.
 
-## Responsive layout and accessibility
-
-- Above 1024px, the game uses a centered frame capped at 1280px, with the board/question area on the left and controls/leaderboard on the right.
-- At 1024px and below, the game columns stack vertically in DOM order: question panel, race board, game controls, then racers leaderboard.
-- At narrow widths, including 320px, panel padding and board/token sizing scale down, text can wrap, and columns are constrained to avoid horizontal page scrolling.
-- Interactive controls use a minimum touch height of 44px on small screens.
-- Test with browser responsive tools at 320px, 360px, 390px, 768px, 1024px, and desktop widths.
-
-## Retro sound engine
-
-The client uses the browser's built-in Web Audio API and creates oscillators and gain envelopes on demand:
-
-- **Correct / boost:** short rising 523Hz-to-1046Hz chime using triangle and square tones.
-- **Penalty / slide:** descending sawtooth sweep from approximately 400Hz to 100Hz with a quiet square-wave layer.
-- **Victory:** a short three-note arpeggio with a low-volume harmony.
-
-The audio context is unlocked from user interactions such as creating/joining a room or starting a race. Sound calls are intentionally non-critical; unsupported audio devices or browser policies must not interrupt multiplayer events or rendering.
+Sound effects are generated with the browser's Web Audio API. Browser autoplay restrictions may require a user interaction before audio plays. If audio is unsupported or blocked, gameplay should continue normally without sound.
 
 ## Verification checklist
 
-- [ ] `npm install` completes and the server starts without errors.
-- [ ] Two or more players can join the same room and room capacity is limited to six.
-- [ ] Only the active host sees **Start Race** and only the host can start/restart.
-- [ ] A correct answer plays the rising chime; wrong answers/penalties and slides play the descending effect; the results overlay triggers the victory fanfare.
-- [ ] A match uses no more than 30 questions and reaching space 30 ends the race immediately.
-- [ ] Board coordinates and boost/slide animations follow the alternating snake path.
-- [ ] Invalid effect cycles are rejected/regenerated by server-side validation.
-- [ ] Layout is readable at 320px and has no horizontal overflow at phone/tablet breakpoints.
-- [ ] Reconnection/session restoration and existing Socket.IO event payloads still behave as before.
+- [ ] `npm install` completes and `npm start` launches the server.
+- [ ] Redis connection and Socket.IO initialization complete without errors.
+- [ ] Two or more players can join the same room, with a maximum of six players.
+- [ ] Only the host can start or restart the match.
+- [ ] Correct and incorrect answers update the game state correctly.
+- [ ] Round progression works after movement animations complete.
+- [ ] A match does not exceed 30 questions and reaching space 30 ends the race.
+- [ ] Boosts and slides animate along the expected snake-shaped board path.
+- [ ] Reconnection restores the appropriate player/session state.
+- [ ] The UI remains usable at mobile and desktop breakpoints.
+- [ ] Sound effects are optional and do not block game actions.
 
 ## Troubleshooting
 
-- **Port already in use:** set `PORT` to an available port if the server supports it, then restart.
-- **Clients do not synchronize:** confirm all clients use the same server URL and inspect the server/browser console for Socket.IO errors.
-- **No sound:** interact with the page first, check browser tab/device volume, and verify Web Audio support. Sound is optional and must not block gameplay.
-- **Layout overflow:** test the actual viewport width and inspect long nicknames, room codes, and browser zoom; avoid adding fixed widths to the responsive columns.
+- **Server does not start:** confirm the Node.js version, run `npm install`, and inspect the terminal output.
+- **Redis connection errors:** verify that `REDIS_URL` is set correctly in `.env` locally or in Render's environment settings, and confirm the Redis service is reachable.
+- **Players do not synchronize:** confirm all clients are connected to the same deployed server and inspect the browser and server logs for Socket.IO errors.
+- **A round does not advance:** inspect server logs and verify that animation-complete acknowledgements are emitted by clients and processed by the server. Avoid changing the acknowledgement contract without checking all related handlers.
+- **Port already in use:** stop the other process or choose an available `PORT` if supported by the app.
+- **No sound:** interact with the page, check browser/device volume, and verify Web Audio support. Sound is not required for gameplay.
+- **Mobile layout overflow:** test the actual viewport width and inspect long names, room codes, and fixed-width elements.
 
-## Development notes
+## Development guidelines
 
-Keep game rules and security-sensitive checks on the server. UI-only work should not change room management, session-token storage, matchmaking forms, nickname verification, host authorization, Socket.IO payload schemas, server-supplied chronological movement ordering, or mathematical graph-validation loops. Before committing, review the diff and run `node --check server.js` plus a browser-based multiplayer smoke test.
+- Keep game rules, validation, host authorization, and winner selection server-authoritative.
+- Preserve Socket.IO event names and payload shapes unless both client and server are updated together.
+- Preserve Redis room-locking and state-save semantics when editing game-state code.
+- Test round advancement, deadlines, reconnection, rematches, and simultaneous player actions after changes.
+- Before committing, review the diff and run syntax checks on changed JavaScript files, followed by a two-player browser smoke test.
+
+
+## Future Enhancements & Roadmap
+
+Trivia Race is an evolving multiplayer gaming project. Future updates will focus on improving gameplay, user experience, reliability, and social interaction.
+
+### Planned Features
+
+- **Player Profiles & Statistics:** Introduce player profiles with match history, wins, accuracy, and performance statistics.
+- **Global Leaderboard:** Display rankings based on wins, scores, and other performance metrics.
+- **Multiple Game Modes:** Explore new modes such as timed challenges, team-based trivia, and customizable match settings.
+- **Question Categories & Difficulty Levels:** Allow players to choose categories such as science, technology, history, sports, and general knowledge, with adjustable difficulty.
+- **Enhanced Multiplayer Experience:** Improve room management, reconnection handling, and synchronization for a smoother multiplayer experience.
+- **Power-Ups & Special Abilities:** Explore additional strategic gameplay mechanics while maintaining fair competition.
+- **UI/UX Improvements:** Continue refining animations, responsive layouts, accessibility, and visual feedback across desktop and mobile devices.
+- **Performance & Reliability:** Optimize Redis-backed state management, round progression, and server-side validation as the game scales.
+- **Testing & Quality Assurance:** Expand automated tests for game rules, room management, reconnections, and multiplayer event handling.
+
+### Long-Term Vision
+
+The long-term goal is to make Trivia Race a polished, reliable, and engaging real-time multiplayer trivia game that supports more gameplay options, competitive features, and a growing player community.
+
+*Note: These items represent potential future enhancements. Features will be implemented and documented as development progresses.*
+
 
 ## License
 
-Add the license that matches the project's ownership and distribution terms before publishing the repository.
+No license is specified in this repository. Add a license that matches the project's ownership and distribution terms before publishing it for reuse.
